@@ -345,7 +345,9 @@ function buildTrades(
     .find((l) => l.price < price);
 
   // LONG candidate: discount + bullish OB/FVG + bullish structure
+  // Do not fade a clear opposing bias for graded A setups.
   if (
+    bias !== "bearish" &&
     (bias === "bullish" || recentEvent?.direction === "bullish") &&
     (range.zone === "discount" || range.zone === "equilibrium") &&
     (unmitigatedBullOB || bullFvg)
@@ -410,6 +412,7 @@ function buildTrades(
 
   // SHORT candidate
   if (
+    bias !== "bullish" &&
     (bias === "bearish" || recentEvent?.direction === "bearish") &&
     (range.zone === "premium" || range.zone === "equilibrium") &&
     (unmitigatedBearOB || bearFvg)
@@ -476,7 +479,55 @@ function buildTrades(
   // If no high-confluence trade, still surface a structure-aware idea when possible
   if (trades.length === 0 && bias !== "ranging") {
     const risk = volatility * 1.1;
-    if (bias === "bullish" && range.zone !== "premium") {
+    if (bias === "bullish" && range.zone === "premium") {
+      const pullback = round2(range.equilibrium);
+      const stopLoss = round2(range.low - volatility * 0.3);
+      const entry = pullback;
+      const riskAmt = entry - stopLoss;
+      trades.push({
+        id: `long-wait-${timeframe}-${candles[candles.length - 1].time}`,
+        side: "long",
+        bias,
+        entry,
+        stopLoss,
+        takeProfit1: round2(entry + riskAmt * 2),
+        takeProfit2: round2(Math.max(range.high, entry + riskAmt * 3)),
+        riskReward1: 2,
+        riskReward2: 3,
+        probability: "B",
+        score: 72,
+        confluences: ["Structure Alignment", "Discount Zone"],
+        rationale:
+          "Bias is bullish but price is in premium — do not chase. Plan a long only if price rebalances toward equilibrium/discount into demand.",
+        invalidation: `Bullish plan cancels on a close below ${stopLoss}.`,
+        timeframe,
+        createdAt: Date.now(),
+      });
+    } else if (bias === "bearish" && range.zone === "discount") {
+      const pullback = round2(range.equilibrium);
+      const stopLoss = round2(range.high + volatility * 0.3);
+      const entry = pullback;
+      const riskAmt = stopLoss - entry;
+      trades.push({
+        id: `short-wait-${timeframe}-${candles[candles.length - 1].time}`,
+        side: "short",
+        bias,
+        entry,
+        stopLoss,
+        takeProfit1: round2(entry - riskAmt * 2),
+        takeProfit2: round2(Math.min(range.low, entry - riskAmt * 3)),
+        riskReward1: 2,
+        riskReward2: 3,
+        probability: "B",
+        score: 72,
+        confluences: ["Structure Alignment", "Premium Zone"],
+        rationale:
+          "Bias is bearish but price is in discount — do not short the lows. Plan a short from a reclaim into premium/supply.",
+        invalidation: `Bearish plan cancels on a close above ${stopLoss}.`,
+        timeframe,
+        createdAt: Date.now(),
+      });
+    } else if (bias === "bullish" && range.zone !== "premium") {
       const entry = round2(price);
       const stopLoss = round2(entry - risk);
       const tp1 = round2(entry + risk * 2);
@@ -493,18 +544,14 @@ function buildTrades(
         riskReward2: 3,
         probability: "B",
         score: 68,
-        confluences: ["Structure Alignment", "Discount Zone"].filter(
-          (t, _, arr) =>
-            t !== "Discount Zone" || range.zone === "discount" || arr.length > 0
-        ) as ConfluenceTag[],
+        confluences: ["Structure Alignment"],
         rationale:
           "No fresh OB/FVG confluence yet. Bias is bullish — wait for a pullback into discount/demand before sizing up.",
         invalidation: `Structure breaks if price closes below ${stopLoss}.`,
         timeframe,
         createdAt: Date.now(),
       });
-    }
-    if (bias === "bearish" && range.zone !== "discount") {
+    } else if (bias === "bearish" && range.zone !== "discount") {
       const entry = round2(price);
       const stopLoss = round2(entry + risk);
       const tp1 = round2(entry - risk * 2);
