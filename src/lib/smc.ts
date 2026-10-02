@@ -70,7 +70,7 @@ function detectStructure(
         events.push({
           index: swing.index,
           time: swing.time,
-          price: swing.price,
+          price: round2(swing.price),
           kind,
           direction: "bullish",
         });
@@ -84,7 +84,7 @@ function detectStructure(
         events.push({
           index: swing.index,
           time: swing.time,
-          price: swing.price,
+          price: round2(swing.price),
           kind,
           direction: "bearish",
         });

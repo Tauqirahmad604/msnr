@@ -1,13 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { PriceChart } from "@/components/price-chart";
+import dynamic from "next/dynamic";
 import { TradeCard } from "@/components/trade-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { Candle, SmcAnalysis, Timeframe } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { RefreshCw } from "lucide-react";
+
+const PriceChart = dynamic(
+  () => import("@/components/price-chart").then((m) => m.PriceChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[380px] w-full animate-pulse rounded-xl bg-white/40 sm:h-[460px] lg:h-[520px]" />
+    ),
+  }
+);
 
 const TIMEFRAMES: Timeframe[] = ["15m", "1h", "4h", "1d"];
 
@@ -33,8 +43,10 @@ export function Analyzer() {
       });
       if (!res.ok) throw new Error(`Analysis failed (${res.status})`);
       const json = (await res.json()) as AnalyzeResponse;
-      setData(json);
-      setSelectedId(json.analysis.trades[0]?.id ?? null);
+      startTransition(() => {
+        setData(json);
+        setSelectedId(json.analysis.trades[0]?.id ?? null);
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to analyze");
     } finally {
@@ -43,9 +55,7 @@ export function Analyzer() {
   }, []);
 
   useEffect(() => {
-    startTransition(() => {
-      void load(tf);
-    });
+    void load(tf);
   }, [tf, load]);
 
   const analysis = data?.analysis;
