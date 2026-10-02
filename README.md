@@ -17,6 +17,7 @@ Not financial advice. Past structure does not guarantee future results.
 - Equal highs/lows → **liquidity pools**
 - Dealing range → **premium / equilibrium / discount**
 - Setups ranked by confluence (**A+ / A / B**) with RR-based targets
+- **Hard risk cap:** stop loss ≤ **50 pips** (pip model: `4206 → 4207` = 10 pips, so 50 pips = 5.0 price). Oversized OB/FVG zones are skipped.
 
 ## Run locally
 

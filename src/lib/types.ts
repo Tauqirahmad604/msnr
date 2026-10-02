@@ -78,6 +78,8 @@ export interface TradeSetup {
   bias: StructureBias;
   entry: number;
   stopLoss: number;
+  /** Absolute stop distance in XAUUSD pips (1.0 price = 10 pips). */
+  stopPips: number;
   takeProfit1: number;
   takeProfit2: number;
   riskReward1: number;

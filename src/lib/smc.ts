@@ -293,6 +293,16 @@ function dealingRangeFromSwings(
   };
 }
 
+/** User pip model: 4206 → 4207 = 10 pips ⇒ 1 pip = 0.1 price. */
+export const XAU_PIP = 0.1;
+export const MAX_STOP_PIPS = 50;
+export const MAX_STOP = MAX_STOP_PIPS * XAU_PIP; // 5.0
+const SL_BUFFER = 5 * XAU_PIP; // 5 pips beyond the zone edge
+
+function toPips(priceDistance: number): number {
+  return round2(Math.abs(priceDistance) / XAU_PIP);
+}
+
 function atr(candles: Candle[], period = 14): number {
   if (candles.length < period + 1) return candles[candles.length - 1].close * 0.002;
   let sum = 0;
@@ -309,6 +319,130 @@ function atr(candles: Candle[], period = 14): number {
   return sum / period;
 }
 
+type DemandZone = {
+  top: number;
+  bottom: number;
+  kind: "Order Block" | "Fair Value Gap";
+};
+
+function tightBullishZones(
+  orderBlocks: OrderBlock[],
+  fvgs: FairValueGap[]
+): DemandZone[] {
+  const fromOb = orderBlocks
+    .filter((o) => o.direction === "bullish" && !o.mitigated)
+    .map((o) => ({ top: o.top, bottom: o.bottom, kind: "Order Block" as const }));
+  const fromFvg = fvgs
+    .filter((f) => f.direction === "bullish" && !f.filled)
+    .map((f) => ({ top: f.top, bottom: f.bottom, kind: "Fair Value Gap" as const }));
+  return [...fromOb, ...fromFvg]
+    .filter((z) => z.top - z.bottom + SL_BUFFER <= MAX_STOP)
+    .sort((a, b) => a.top - a.bottom - (b.top - b.bottom));
+}
+
+function tightBearishZones(
+  orderBlocks: OrderBlock[],
+  fvgs: FairValueGap[]
+): DemandZone[] {
+  const fromOb = orderBlocks
+    .filter((o) => o.direction === "bearish" && !o.mitigated)
+    .map((o) => ({ top: o.top, bottom: o.bottom, kind: "Order Block" as const }));
+  const fromFvg = fvgs
+    .filter((f) => f.direction === "bearish" && !f.filled)
+    .map((f) => ({ top: f.top, bottom: f.bottom, kind: "Fair Value Gap" as const }));
+  return [...fromOb, ...fromFvg]
+    .filter((z) => z.top - z.bottom + SL_BUFFER <= MAX_STOP)
+    .sort((a, b) => a.top - a.bottom - (b.top - b.bottom));
+}
+
+function makeLongTrade(args: {
+  id: string;
+  timeframe: Timeframe;
+  bias: StructureBias;
+  entry: number;
+  stopLoss: number;
+  tp1: number;
+  tp2: number;
+  confluences: ConfluenceTag[];
+  rationale: string;
+  scoreBase: number;
+}): TradeSetup | null {
+  const risk = args.entry - args.stopLoss;
+  if (risk <= 0 || risk > MAX_STOP + 1e-9) return null;
+  const stopPips = toPips(risk);
+  if (stopPips > MAX_STOP_PIPS) return null;
+  const rr1 = round2((args.tp1 - args.entry) / risk);
+  const rr2 = round2((args.tp2 - args.entry) / risk);
+  if (rr1 < 1.5) return null;
+  const score = Math.min(
+    98,
+    args.scoreBase + (rr1 >= 2 ? 6 : 0) + (args.bias === "bullish" ? 5 : 0)
+  );
+  return {
+    id: args.id,
+    side: "long",
+    bias: args.bias,
+    entry: round2(args.entry),
+    stopLoss: round2(args.stopLoss),
+    stopPips,
+    takeProfit1: round2(args.tp1),
+    takeProfit2: round2(Math.max(args.tp2, args.entry + risk * 3)),
+    riskReward1: rr1,
+    riskReward2: Math.max(rr2, 3),
+    probability: score >= 85 ? "A+" : score >= 75 ? "A" : "B",
+    score,
+    confluences: args.confluences,
+    rationale: `${args.rationale} SL capped at ${stopPips} pips (max ${MAX_STOP_PIPS}).`,
+    invalidation: `Close below ${round2(args.stopLoss)} (${stopPips} pips).`,
+    timeframe: args.timeframe,
+    createdAt: Date.now(),
+  };
+}
+
+function makeShortTrade(args: {
+  id: string;
+  timeframe: Timeframe;
+  bias: StructureBias;
+  entry: number;
+  stopLoss: number;
+  tp1: number;
+  tp2: number;
+  confluences: ConfluenceTag[];
+  rationale: string;
+  scoreBase: number;
+}): TradeSetup | null {
+  const risk = args.stopLoss - args.entry;
+  if (risk <= 0 || risk > MAX_STOP + 1e-9) return null;
+  const stopPips = toPips(risk);
+  if (stopPips > MAX_STOP_PIPS) return null;
+  const rr1 = round2((args.entry - args.tp1) / risk);
+  const rr2 = round2((args.entry - args.tp2) / risk);
+  if (rr1 < 1.5) return null;
+  const score = Math.min(
+    98,
+    args.scoreBase + (rr1 >= 2 ? 6 : 0) + (args.bias === "bearish" ? 5 : 0)
+  );
+  return {
+    id: args.id,
+    side: "short",
+    bias: args.bias,
+    entry: round2(args.entry),
+    stopLoss: round2(args.stopLoss),
+    stopPips,
+    takeProfit1: round2(args.tp1),
+    takeProfit2: round2(Math.min(args.tp2, args.entry - risk * 3)),
+    riskReward1: rr1,
+    riskReward2: Math.max(rr2, 3),
+    probability: score >= 85 ? "A+" : score >= 75 ? "A" : "B",
+    score,
+    confluences: args.confluences,
+    rationale: `${args.rationale} SL capped at ${stopPips} pips (max ${MAX_STOP_PIPS}).`,
+    invalidation: `Close above ${round2(args.stopLoss)} (${stopPips} pips).`,
+    timeframe: args.timeframe,
+    createdAt: Date.now(),
+  };
+}
+
 function buildTrades(
   candles: Candle[],
   timeframe: Timeframe,
@@ -320,21 +454,10 @@ function buildTrades(
   events: StructureEvent[]
 ): TradeSetup[] {
   const price = candles[candles.length - 1].close;
-  const volatility = atr(candles);
   const trades: TradeSetup[] = [];
   const recentEvent = events[events.length - 1];
-  const unmitigatedBullOB = [...orderBlocks]
-    .reverse()
-    .find((o) => o.direction === "bullish" && !o.mitigated);
-  const unmitigatedBearOB = [...orderBlocks]
-    .reverse()
-    .find((o) => o.direction === "bearish" && !o.mitigated);
-  const bullFvg = [...fvgs]
-    .reverse()
-    .find((f) => f.direction === "bullish" && !f.filled);
-  const bearFvg = [...fvgs]
-    .reverse()
-    .find((f) => f.direction === "bearish" && !f.filled);
+  const bullZones = tightBullishZones(orderBlocks, fvgs);
+  const bearZones = tightBearishZones(orderBlocks, fvgs);
   const sellLiq = liquidity
     .filter((l) => l.side === "sell")
     .sort((a, b) => a.price - b.price)
@@ -344,242 +467,191 @@ function buildTrades(
     .sort((a, b) => b.price - a.price)
     .find((l) => l.price < price);
 
-  // LONG candidate: discount + bullish OB/FVG + bullish structure
-  // Do not fade a clear opposing bias for graded A setups.
+  // LONG: only zones that fit inside a 50-pip stop
   if (
     bias !== "bearish" &&
     (bias === "bullish" || recentEvent?.direction === "bullish") &&
     (range.zone === "discount" || range.zone === "equilibrium") &&
-    (unmitigatedBullOB || bullFvg)
+    bullZones.length > 0
   ) {
-    const confluences: ConfluenceTag[] = ["Structure Alignment"];
-    if (range.zone === "discount") confluences.push("Discount Zone");
-    if (unmitigatedBullOB) confluences.push("Order Block");
-    if (bullFvg) confluences.push("Fair Value Gap");
-    if (recentEvent?.kind === "BOS" && recentEvent.direction === "bullish") {
-      confluences.push("BOS");
-    }
-    if (recentEvent?.kind === "CHoCH" && recentEvent.direction === "bullish") {
-      confluences.push("CHoCH");
-    }
-    if (buyLiq && Math.abs(price - buyLiq.price) / price < 0.004) {
-      confluences.push("Liquidity Sweep");
-    }
+    for (const zone of bullZones.slice(0, 4)) {
+      const confluences: ConfluenceTag[] = ["Structure Alignment", zone.kind];
+      if (range.zone === "discount") confluences.push("Discount Zone");
+      if (recentEvent?.kind === "BOS" && recentEvent.direction === "bullish") {
+        confluences.push("BOS");
+      }
+      if (recentEvent?.kind === "CHoCH" && recentEvent.direction === "bullish") {
+        confluences.push("CHoCH");
+      }
+      if (buyLiq && Math.abs(price - buyLiq.price) / price < 0.004) {
+        confluences.push("Liquidity Sweep");
+      }
 
-    const entryZoneTop = unmitigatedBullOB?.top ?? bullFvg?.top ?? price;
-    const entryZoneBottom =
-      unmitigatedBullOB?.bottom ?? bullFvg?.bottom ?? price - volatility;
-    const entry = round2(
-      Math.min(price, (entryZoneTop + entryZoneBottom) / 2)
-    );
-    const stopLoss = round2(
-      Math.min(entryZoneBottom, range.low) - volatility * 0.35
-    );
-    const risk = entry - stopLoss;
-    if (risk > 0) {
+      // Enter at the top of demand for a tight structural SL under the zone.
+      const entry = round2(Math.min(price, zone.top));
+      let stopLoss = round2(zone.bottom - SL_BUFFER);
+      let risk = entry - stopLoss;
+      if (risk > MAX_STOP) {
+        stopLoss = round2(entry - MAX_STOP);
+        risk = entry - stopLoss;
+        // Zone must still sit above the capped stop (structure still valid).
+        if (zone.bottom < stopLoss) continue;
+      }
+      if (risk < 5 * XAU_PIP) continue; // ignore tiny noise stops
+
       const tp1 = round2(
-        Math.min(sellLiq?.price ?? entry + risk * 2, range.equilibrium + risk)
+        Math.min(
+          sellLiq?.price ?? entry + risk * 2,
+          Math.max(range.equilibrium, entry + risk * 2)
+        )
       );
       const tp2 = round2(sellLiq?.price ?? range.high);
-      const rr1 = round2((tp1 - entry) / risk);
-      const rr2 = round2((tp2 - entry) / risk);
-      if (rr1 >= 1.5) {
-        const score = Math.min(
-          98,
-          55 + confluences.length * 8 + (rr1 >= 2 ? 6 : 0) + (bias === "bullish" ? 5 : 0)
-        );
-        trades.push({
-          id: `long-${timeframe}-${candles[candles.length - 1].time}`,
-          side: "long",
-          bias,
-          entry,
-          stopLoss,
-          takeProfit1: tp1,
-          takeProfit2: Math.max(tp2, round2(entry + risk * 3)),
-          riskReward1: rr1,
-          riskReward2: Math.max(rr2, 3),
-          probability: score >= 85 ? "A+" : score >= 75 ? "A" : "B",
-          score,
-          confluences,
-          rationale: `Bullish SMC long: price in ${range.zone} of the dealing range with ${confluences.join(", ").toLowerCase()}. Entry leans into the demand zone; trail after TP1.`,
-          invalidation: `Close below ${stopLoss} (beyond bullish order block / swing low).`,
-          timeframe,
-          createdAt: Date.now(),
-        });
-      }
+      const trade = makeLongTrade({
+        id: `long-${timeframe}-${candles[candles.length - 1].time}-${zone.kind}`,
+        timeframe,
+        bias,
+        entry,
+        stopLoss,
+        tp1,
+        tp2,
+        confluences,
+        rationale: `Bullish SMC long from ${zone.kind.toLowerCase()} in ${range.zone}. Entry at demand top; trail after TP1.`,
+        scoreBase: 55 + confluences.length * 8,
+      });
+      if (trade) trades.push(trade);
     }
   }
 
-  // SHORT candidate
+  // SHORT: same 50-pip discipline
   if (
     bias !== "bullish" &&
     (bias === "bearish" || recentEvent?.direction === "bearish") &&
     (range.zone === "premium" || range.zone === "equilibrium") &&
-    (unmitigatedBearOB || bearFvg)
+    bearZones.length > 0
   ) {
-    const confluences: ConfluenceTag[] = ["Structure Alignment"];
-    if (range.zone === "premium") confluences.push("Premium Zone");
-    if (unmitigatedBearOB) confluences.push("Order Block");
-    if (bearFvg) confluences.push("Fair Value Gap");
-    if (recentEvent?.kind === "BOS" && recentEvent.direction === "bearish") {
-      confluences.push("BOS");
-    }
-    if (recentEvent?.kind === "CHoCH" && recentEvent.direction === "bearish") {
-      confluences.push("CHoCH");
-    }
-    if (sellLiq && Math.abs(price - sellLiq.price) / price < 0.004) {
-      confluences.push("Liquidity Sweep");
-    }
+    for (const zone of bearZones.slice(0, 4)) {
+      const confluences: ConfluenceTag[] = ["Structure Alignment", zone.kind];
+      if (range.zone === "premium") confluences.push("Premium Zone");
+      if (recentEvent?.kind === "BOS" && recentEvent.direction === "bearish") {
+        confluences.push("BOS");
+      }
+      if (recentEvent?.kind === "CHoCH" && recentEvent.direction === "bearish") {
+        confluences.push("CHoCH");
+      }
+      if (sellLiq && Math.abs(price - sellLiq.price) / price < 0.004) {
+        confluences.push("Liquidity Sweep");
+      }
 
-    const entryZoneBottom =
-      unmitigatedBearOB?.bottom ?? bearFvg?.bottom ?? price;
-    const entryZoneTop =
-      unmitigatedBearOB?.top ?? bearFvg?.top ?? price + volatility;
-    const entry = round2(
-      Math.max(price, (entryZoneTop + entryZoneBottom) / 2)
-    );
-    const stopLoss = round2(
-      Math.max(entryZoneTop, range.high) + volatility * 0.35
-    );
-    const risk = stopLoss - entry;
-    if (risk > 0) {
+      const entry = round2(Math.max(price, zone.bottom));
+      let stopLoss = round2(zone.top + SL_BUFFER);
+      let risk = stopLoss - entry;
+      if (risk > MAX_STOP) {
+        stopLoss = round2(entry + MAX_STOP);
+        risk = stopLoss - entry;
+        if (zone.top > stopLoss) continue;
+      }
+      if (risk < 5 * XAU_PIP) continue;
+
       const tp1 = round2(
-        Math.max(buyLiq?.price ?? entry - risk * 2, range.equilibrium - risk)
+        Math.max(
+          buyLiq?.price ?? entry - risk * 2,
+          Math.min(range.equilibrium, entry - risk * 2)
+        )
       );
       const tp2 = round2(buyLiq?.price ?? range.low);
-      const rr1 = round2((entry - tp1) / risk);
-      const rr2 = round2((entry - tp2) / risk);
-      if (rr1 >= 1.5) {
-        const score = Math.min(
-          98,
-          55 + confluences.length * 8 + (rr1 >= 2 ? 6 : 0) + (bias === "bearish" ? 5 : 0)
-        );
-        trades.push({
-          id: `short-${timeframe}-${candles[candles.length - 1].time}`,
-          side: "short",
-          bias,
-          entry,
-          stopLoss,
-          takeProfit1: tp1,
-          takeProfit2: Math.min(tp2, round2(entry - risk * 3)),
-          riskReward1: rr1,
-          riskReward2: Math.max(rr2, 3),
-          probability: score >= 85 ? "A+" : score >= 75 ? "A" : "B",
-          score,
-          confluences,
-          rationale: `Bearish SMC short: price in ${range.zone} with ${confluences.join(", ").toLowerCase()}. Entry favors the supply zone; reduce size into TP1.`,
-          invalidation: `Close above ${stopLoss} (beyond bearish order block / swing high).`,
-          timeframe,
-          createdAt: Date.now(),
-        });
-      }
+      const trade = makeShortTrade({
+        id: `short-${timeframe}-${candles[candles.length - 1].time}-${zone.kind}`,
+        timeframe,
+        bias,
+        entry,
+        stopLoss,
+        tp1,
+        tp2,
+        confluences,
+        rationale: `Bearish SMC short from ${zone.kind.toLowerCase()} in ${range.zone}. Entry at supply bottom; reduce into TP1.`,
+        scoreBase: 55 + confluences.length * 8,
+      });
+      if (trade) trades.push(trade);
     }
   }
 
-  // If no high-confluence trade, still surface a structure-aware idea when possible
+  // Fallback plans also respect the 50-pip hard cap
   if (trades.length === 0 && bias !== "ranging") {
-    const risk = volatility * 1.1;
+    const risk = MAX_STOP;
     if (bias === "bullish" && range.zone === "premium") {
-      const pullback = round2(range.equilibrium);
-      const stopLoss = round2(range.low - volatility * 0.3);
-      const entry = pullback;
-      const riskAmt = entry - stopLoss;
-      trades.push({
+      const entry = round2(Math.min(price, range.equilibrium));
+      const stopLoss = round2(entry - risk);
+      const trade = makeLongTrade({
         id: `long-wait-${timeframe}-${candles[candles.length - 1].time}`,
-        side: "long",
+        timeframe,
         bias,
         entry,
         stopLoss,
-        takeProfit1: round2(entry + riskAmt * 2),
-        takeProfit2: round2(Math.max(range.high, entry + riskAmt * 3)),
-        riskReward1: 2,
-        riskReward2: 3,
-        probability: "B",
-        score: 72,
+        tp1: round2(entry + risk * 2),
+        tp2: round2(Math.max(range.high, entry + risk * 3)),
         confluences: ["Structure Alignment", "Discount Zone"],
         rationale:
-          "Bias is bullish but price is in premium — do not chase. Plan a long only if price rebalances toward equilibrium/discount into demand.",
-        invalidation: `Bullish plan cancels on a close below ${stopLoss}.`,
-        timeframe,
-        createdAt: Date.now(),
+          "Bias bullish but price in premium — wait for a pullback; planned long uses a max 50-pip stop.",
+        scoreBase: 64,
       });
+      if (trade) trades.push(trade);
     } else if (bias === "bearish" && range.zone === "discount") {
-      const pullback = round2(range.equilibrium);
-      const stopLoss = round2(range.high + volatility * 0.3);
-      const entry = pullback;
-      const riskAmt = stopLoss - entry;
-      trades.push({
+      const entry = round2(Math.max(price, range.equilibrium));
+      const stopLoss = round2(entry + risk);
+      const trade = makeShortTrade({
         id: `short-wait-${timeframe}-${candles[candles.length - 1].time}`,
-        side: "short",
+        timeframe,
         bias,
         entry,
         stopLoss,
-        takeProfit1: round2(entry - riskAmt * 2),
-        takeProfit2: round2(Math.min(range.low, entry - riskAmt * 3)),
-        riskReward1: 2,
-        riskReward2: 3,
-        probability: "B",
-        score: 72,
+        tp1: round2(entry - risk * 2),
+        tp2: round2(Math.min(range.low, entry - risk * 3)),
         confluences: ["Structure Alignment", "Premium Zone"],
         rationale:
-          "Bias is bearish but price is in discount — do not short the lows. Plan a short from a reclaim into premium/supply.",
-        invalidation: `Bearish plan cancels on a close above ${stopLoss}.`,
-        timeframe,
-        createdAt: Date.now(),
+          "Bias bearish but price in discount — wait for a reclaim; planned short uses a max 50-pip stop.",
+        scoreBase: 64,
       });
+      if (trade) trades.push(trade);
     } else if (bias === "bullish" && range.zone !== "premium") {
       const entry = round2(price);
       const stopLoss = round2(entry - risk);
-      const tp1 = round2(entry + risk * 2);
-      const tp2 = round2(Math.max(range.high, entry + risk * 3));
-      trades.push({
+      const trade = makeLongTrade({
         id: `long-bias-${timeframe}-${candles[candles.length - 1].time}`,
-        side: "long",
+        timeframe,
         bias,
         entry,
         stopLoss,
-        takeProfit1: tp1,
-        takeProfit2: tp2,
-        riskReward1: 2,
-        riskReward2: 3,
-        probability: "B",
-        score: 68,
+        tp1: round2(entry + risk * 2),
+        tp2: round2(Math.max(range.high, entry + risk * 3)),
         confluences: ["Structure Alignment"],
         rationale:
-          "No fresh OB/FVG confluence yet. Bias is bullish — wait for a pullback into discount/demand before sizing up.",
-        invalidation: `Structure breaks if price closes below ${stopLoss}.`,
-        timeframe,
-        createdAt: Date.now(),
+          "No tight OB/FVG under 50 pips yet. Bias-long plan with hard 50-pip stop — prefer waiting for a cleaner demand tap.",
+        scoreBase: 58,
       });
+      if (trade) trades.push(trade);
     } else if (bias === "bearish" && range.zone !== "discount") {
       const entry = round2(price);
       const stopLoss = round2(entry + risk);
-      const tp1 = round2(entry - risk * 2);
-      const tp2 = round2(Math.min(range.low, entry - risk * 3));
-      trades.push({
+      const trade = makeShortTrade({
         id: `short-bias-${timeframe}-${candles[candles.length - 1].time}`,
-        side: "short",
+        timeframe,
         bias,
         entry,
         stopLoss,
-        takeProfit1: tp1,
-        takeProfit2: tp2,
-        riskReward1: 2,
-        riskReward2: 3,
-        probability: "B",
-        score: 68,
+        tp1: round2(entry - risk * 2),
+        tp2: round2(Math.min(range.low, entry - risk * 3)),
         confluences: ["Structure Alignment", "Premium Zone"],
         rationale:
-          "No fresh OB/FVG confluence yet. Bias is bearish — prefer shorts from premium/supply, not chasing mid-range.",
-        invalidation: `Structure breaks if price closes above ${stopLoss}.`,
-        timeframe,
-        createdAt: Date.now(),
+          "No tight OB/FVG under 50 pips yet. Bias-short plan with hard 50-pip stop — prefer waiting for cleaner supply.",
+        scoreBase: 58,
       });
+      if (trade) trades.push(trade);
     }
   }
 
   return trades
-    .sort((a, b) => b.score - a.score)
+    .filter((t) => t.stopPips <= MAX_STOP_PIPS)
+    .sort((a, b) => b.score - a.score || a.stopPips - b.stopPips)
     .slice(0, 3);
 }
 

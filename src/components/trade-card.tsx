@@ -49,7 +49,11 @@ export function TradeCard({ trade, selected, onSelect }: TradeCardProps) {
 
       <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <Level label="Entry" value={trade.entry} />
-        <Level label="Stop Loss" value={trade.stopLoss} tone="risk" />
+        <Level
+          label={`Stop · ${trade.stopPips} pips`}
+          value={trade.stopLoss}
+          tone="risk"
+        />
         <Level label="TP1" value={trade.takeProfit1} tone="reward" />
         <Level label="TP2" value={trade.takeProfit2} tone="reward" />
       </div>

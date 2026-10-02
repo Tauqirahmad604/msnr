@@ -159,8 +159,8 @@ export function Analyzer() {
                 Trade setups
               </h2>
               <p className="mt-1 text-sm text-[var(--ink-soft)]">
-                Ranked by confluence score. Select a setup to plot entry, SL,
-                and targets on the chart.
+                Ranked by confluence. Hard rule: stop loss ≤ 50 pips (1.0 price =
+                10 pips). Select a setup to plot entry, SL, and targets.
               </p>
               <div className="mt-4 space-y-3">
                 {analysis.trades.length === 0 ? (
