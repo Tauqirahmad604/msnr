@@ -3,6 +3,7 @@ import type { Candle, Timeframe } from "@/lib/types";
 const YAHOO_INTERVAL: Record<Timeframe, { interval: string; range: string }> = {
   "5m": { interval: "5m", range: "5d" },
   "15m": { interval: "15m", range: "10d" },
+  "30m": { interval: "30m", range: "1mo" },
   "1h": { interval: "60m", range: "1mo" },
   "4h": { interval: "60m", range: "3mo" },
   "1d": { interval: "1d", range: "1y" },

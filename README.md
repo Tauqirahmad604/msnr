@@ -1,25 +1,27 @@
-# Aureum — XAUUSD SMC Analyzer
+# Aureum — XAUUSD spot desk
 
-Educational Smart Money Concepts (SMC) desk for **XAUUSD**. It pulls live gold futures candles (COMEX `GC=F`, a close proxy for spot gold), maps structure / order blocks / fair value gaps / liquidity, and grades trade ideas with **entry, stop loss, TP1, and TP2**.
+Gold-only Smart Money desk for **spot XAUUSD**.
 
-## What this is (and is not)
+The chart is live spot gold. Candle shape comes from COMEX futures and is shifted by the live spot-minus-futures basis, so the prices you see match XAUUSD rather than the raw futures quote.
 
-- **Is:** a local analyzer + chart UI you can run yourself.
-- **Is not:** a live login to your personal TradingView account. TradingView does not expose private chart sessions to third-party agents. Use this beside TradingView, or mirror levels manually.
+## What it does
 
-Not financial advice. Past structure does not guarantee future results.
+- Exact **M5 / M15 / M30** entries (one price, not a zone)
+- Stop must be **20–50 pips** or the setup is skipped (1 pip = 0.1, so 50 pips = 5.0)
+- Target is **15 pips** on a confirmed liquidity sweep
+- Trades only when **H1 and H4 agree**, ATR is at most 40 pips, and it is London/New York hours
+- Marks recent **A** swing highs and **V** swing lows
+- Macro strip: dollar index, US 10-year, VIX, silver, and upcoming USD events
+- Trade record with TP / SL counts, win rate, and a **PDF download**
+- Browser journal of live signals this desk actually prints
 
-## SMC checklist used
+## Win rate
 
-- Swing structure → **BOS / CHoCH** and market bias
-- **Order blocks** (demand/supply from impulsive moves)
-- **Fair value gaps** (3-candle imbalances)
-- Equal highs/lows → **liquidity pools**
-- Dealing range → **premium / equilibrium / discount**
-- Setups ranked by confluence (**A+ / A / B**) with RR-based targets
-- **Hard risk cap:** stop loss ≤ **50 pips** (pip model: `4206 → 4207` = 10 pips, so 50 pips = 5.0 price). Oversized OB/FVG zones are skipped.
+The desk shows the **measured** win rate of this exact rule on the loaded history (about 60 days). On the research pass that set the rule, M5 was about **70% on 27 closed trades**, with a tiny positive average. That sample is too small to promise 70–80% going forward. If the history does not support a trade, the card says **stand aside**.
 
-## Run locally
+Not financial advice.
+
+## Run
 
 ```bash
 npm install
@@ -28,14 +30,17 @@ npm run dev
 
 Open [http://127.0.0.1:43127](http://127.0.0.1:43127).
 
-## API
+`GET /api/desk` returns spot price, the three execution timeframes, macro, and the measured record.
 
-`GET /api/analyze?tf=1h`
+## Free access from anywhere
 
-`tf` one of: `15m`, `1h`, `4h`, `1d`.
+While this machine is on, a Cloudflare quick tunnel can publish the app with no account and no fee:
 
-Returns candles plus the full SMC analysis payload (bias, levels, graded trades).
+```bash
+npm run start
+cloudflared tunnel --url http://127.0.0.1:43127
+```
 
-## Stack
+The `trycloudflare.com` URL stays up only as long as that process does.
 
-Next.js, TypeScript, Tailwind, shadcn/ui, lightweight-charts, Yahoo Finance chart endpoint for gold futures.
+For a free URL that survives restarts, import the repo into [Vercel Hobby](https://vercel.com) (free tier) and deploy. No paid plan is required for this app. There is no database: the PDF and browser journal live on the device you use.

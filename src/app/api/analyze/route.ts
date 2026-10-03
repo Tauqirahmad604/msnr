@@ -3,7 +3,7 @@ import { fetchGoldCandles } from "@/lib/candles";
 import { analyzeSmc } from "@/lib/smc";
 import type { Candle, Timeframe } from "@/lib/types";
 
-const VALID: Timeframe[] = ["5m", "15m", "1h", "4h", "1d"];
+const VALID: Timeframe[] = ["5m", "15m", "30m", "1h", "4h", "1d"];
 
 export async function GET(req: NextRequest) {
   const tfParam = (req.nextUrl.searchParams.get("tf") ?? "1h") as Timeframe;

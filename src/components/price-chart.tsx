@@ -18,18 +18,26 @@ import type {
   TradeSetup,
 } from "@/lib/types";
 
+interface ChartMark {
+  price: number;
+  title: string;
+  color: string;
+}
+
 interface PriceChartProps {
   candles: Candle[];
-  orderBlocks: OrderBlock[];
-  fvgs: FairValueGap[];
+  orderBlocks?: OrderBlock[];
+  fvgs?: FairValueGap[];
   trade?: TradeSetup | null;
+  marks?: ChartMark[];
 }
 
 export function PriceChart({
   candles,
-  orderBlocks,
-  fvgs,
+  orderBlocks = [],
+  fvgs = [],
   trade,
+  marks = [],
 }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -122,9 +130,15 @@ export function PriceChart({
 
     if (trade) {
       addLine(trade.entry, "#b89448", "ENTRY", 0);
-      addLine(trade.stopLoss, "#b42318", "SL", 2);
-      addLine(trade.takeProfit1, "#1f7a4d", "TP1", 2);
-      addLine(trade.takeProfit2, "#0f766e", "TP2", 3);
+      addLine(trade.stopLoss, "#b42318", `SL ${trade.stopPips}p`, 2);
+      addLine(trade.takeProfit1, "#1f7a4d", "TP", 2);
+      if (Math.abs(trade.takeProfit2 - trade.takeProfit1) > 0.05) {
+        addLine(trade.takeProfit2, "#0f766e", "TP2", 3);
+      }
+    }
+
+    for (const mark of marks) {
+      addLine(mark.price, mark.color, mark.title, 3);
     }
 
     for (const ob of orderBlocks.slice(-3)) {
@@ -149,7 +163,7 @@ export function PriceChart({
     }
 
     chart.timeScale().fitContent();
-  }, [candles, orderBlocks, fvgs, trade]);
+  }, [candles, orderBlocks, fvgs, trade, marks]);
 
   return (
     <div
