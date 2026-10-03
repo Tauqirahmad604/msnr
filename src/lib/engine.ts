@@ -23,16 +23,18 @@ export interface ModelConfig {
   swing: number;
 }
 
+export const MIN_RR = 2;
+
 export const RULE_TEXT =
-  "Exact entry is the close of a sweep candle. Stop is the sweep wick plus 3 pips, and the trade is skipped unless that stop is 20–50 pips. Target is the same distance as the stop, so reward is never smaller than risk. H1 and H4 must agree. ATR must be 40 pips or less. London and New York hours only.";
+  "Chart is OANDA:XAUUSD. Exact entry is the close of a sweep candle. Stop is the sweep wick plus 3 pips and must be 50 pips or less. Target is at least twice the stop (minimum 1:2). H1 and H4 must agree. London and New York hours only.";
 
 export const LIVE_CONFIG: ModelConfig = {
-  tpR: 1,
+  tpR: MIN_RR,
   fixedTpPips: null,
-  minRisk: 2,
+  minRisk: 1,
   maxRisk: 5,
   buffer: 0.3,
-  atrMax: 4,
+  atrMax: 99,
   sessionOnly: true,
   requireH4: true,
   requireD1: false,
@@ -143,10 +145,25 @@ function atrAt(candles: Candle[], index: number, period = 14) {
   return n === 0 ? 0 : sum / n;
 }
 
-function targetFrom(entry: number, risk: number, side: "long" | "short", config: ModelConfig) {
-  const distance =
-    config.fixedTpPips != null ? config.fixedTpPips * PIP : risk * config.tpR;
-  return round2(side === "long" ? entry + distance : entry - distance);
+function snapLevels(
+  entry: number,
+  structuralStop: number,
+  side: "long" | "short"
+): { stopLoss: number; takeProfit: number } | null {
+  const stopPips = Math.round(Math.abs(entry - structuralStop) / PIP);
+  if (stopPips < 10 || stopPips > MAX_STOP_PIPS) return null;
+  const risk = stopPips * PIP;
+  const reward = stopPips * MIN_RR * PIP;
+  if (side === "long") {
+    return {
+      stopLoss: round2(entry - risk),
+      takeProfit: round2(entry + reward),
+    };
+  }
+  return {
+    stopLoss: round2(entry + risk),
+    takeProfit: round2(entry - reward),
+  };
 }
 
 function inSession(time: number, sessionOnly: boolean) {
@@ -237,11 +254,9 @@ export function scanEntries(
       if (!swept) continue;
       if (confirm.close <= swept.price) continue;
       const entry = round2(confirm.close);
-      const stopLoss = round2(confirm.low - config.buffer);
-      const risk = entry - stopLoss;
-      if (risk < config.minRisk || risk > config.maxRisk) continue;
-      const takeProfit = targetFrom(entry, risk, "long", config);
-      if (takeProfit - entry + 1e-9 < risk) continue;
+      const snapped = snapLevels(entry, confirm.low - config.buffer, "long");
+      if (!snapped) continue;
+      const { stopLoss, takeProfit } = snapped;
       const resolved = resolveLong(candles, i, stopLoss, takeProfit);
       trades.push(
         trade({
@@ -251,7 +266,7 @@ export function scanEntries(
           stopLoss,
           takeProfit,
           openedAt: confirm.time,
-          reason: `M${timeframe.replace("m", "")} bullish sweep of ${round2(swept.price)} (V). Exact entry is the confirmation close. H1+H4 bullish.`,
+          reason: `OANDA M${timeframe.replace("m", "")} bullish sweep of ${round2(swept.price)}. Entry ${entry}. Stop ${stopLoss} (${Math.round((entry - stopLoss) / PIP)} pips). Target ${takeProfit} is 1:2.`,
           ...resolved,
         })
       );
@@ -265,11 +280,9 @@ export function scanEntries(
       if (!swept) continue;
       if (confirm.close >= swept.price) continue;
       const entry = round2(confirm.close);
-      const stopLoss = round2(confirm.high + config.buffer);
-      const risk = stopLoss - entry;
-      if (risk < config.minRisk || risk > config.maxRisk) continue;
-      const takeProfit = targetFrom(entry, risk, "short", config);
-      if (entry - takeProfit + 1e-9 < risk) continue;
+      const snapped = snapLevels(entry, confirm.high + config.buffer, "short");
+      if (!snapped) continue;
+      const { stopLoss, takeProfit } = snapped;
       const resolved = resolveShort(candles, i, stopLoss, takeProfit);
       trades.push(
         trade({
@@ -279,7 +292,7 @@ export function scanEntries(
           stopLoss,
           takeProfit,
           openedAt: confirm.time,
-          reason: `M${timeframe.replace("m", "")} bearish sweep of ${round2(swept.price)} (A). Exact entry is the confirmation close. H1+H4 bearish.`,
+          reason: `OANDA M${timeframe.replace("m", "")} bearish sweep of ${round2(swept.price)}. Entry ${entry}. Stop ${stopLoss} (${Math.round((stopLoss - entry) / PIP)} pips). Target ${takeProfit} is 1:2.`,
           ...resolved,
         })
       );

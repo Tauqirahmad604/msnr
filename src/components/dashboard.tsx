@@ -74,10 +74,7 @@ function readJournal(): ExactTrade[] {
 function asideReason(frame: Frame) {
   if (frame.biasH1 === "ranging") return "H1 structure is ranging. No exact entry.";
   if (frame.biasH1 !== frame.biasH4) return "H1 and H4 disagree. Standing aside.";
-  if (frame.atr > 4) {
-    return `ATR is ${pips(frame.atr)} pips. A 50-pip stop would sit inside the noise.`;
-  }
-  return "No fresh sweep with a 20–50 pip stop. Wait for the next close.";
+  return "No sweep with a stop of 50 pips or less and a 1:2 target.";
 }
 
 function toSetup(trade: ExactTrade): TradeSetup {
@@ -218,16 +215,16 @@ export function Dashboard() {
             Aureum
           </p>
           <h1 className="mt-2 max-w-xl text-base text-[var(--ink-soft)] sm:text-lg">
-            XAUUSD spot only. Exact M5, M15, and M30 entries. Stop capped at 50 pips.
+            OANDA:XAUUSD. Exact M5, M15, and M30 entries. Minimum 1:2 reward, stop at most 50 pips.
           </h1>
         </div>
         <div className="text-right">
-          <p className="text-xs tracking-[0.16em] text-[var(--ink-mute)] uppercase">XAUUSD spot</p>
+          <p className="text-xs tracking-[0.16em] text-[var(--ink-mute)] uppercase">OANDA:XAUUSD</p>
           <p className="font-[family-name:var(--font-display)] text-4xl tabular-nums text-[var(--ink)]">
             {desk ? desk.spot.toFixed(2) : "—"}
           </p>
           <p className="text-xs text-[var(--ink-mute)]">
-            {desk ? `Futures ${desk.futures.toFixed(2)} · basis ${desk.basis.toFixed(2)}` : "Loading spot"}
+            {desk ? desk.source : "Loading OANDA"}
           </p>
         </div>
       </header>
@@ -349,7 +346,7 @@ export function Dashboard() {
                 ))}
               </div>
               <p className="mt-3 text-xs leading-relaxed text-[var(--ink-mute)]">
-                This percentage is the measured result of the rule on the loaded history. Reward is never smaller than the stop. It is not a promise for the next trade.
+                This is the measured win rate on OANDA history for a minimum 1:2 target and a stop of 50 pips or less. On this history that rate is not above 70%. The desk will not print a higher number than the trades it actually closed.
               </p>
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-left text-sm">

@@ -2,14 +2,15 @@
 
 Gold-only Smart Money desk for **spot XAUUSD**.
 
-The chart is live spot gold. Candle shape comes from COMEX futures and is shifted by the live spot-minus-futures basis, so the prices you see match XAUUSD rather than the raw futures quote.
+The chart is **OANDA:XAUUSD**, the same symbol used on TradingView.
 
 ## What it does
 
+- Chart source is **OANDA:XAUUSD**
 - Exact **M5 / M15 / M30** entries (one price, not a zone)
-- Stop must be **20–50 pips** or the setup is skipped (1 pip = 0.1, so 50 pips = 5.0)
-- Target is at least **1:1** with the stop. A setup is skipped when the target would be closer than the stop.
-- Trades only when **H1 and H4 agree**, ATR is at most 40 pips, and it is London/New York hours
+- Stop must be **50 pips or less** (1 pip = 0.1)
+- Target is at least **1:2** versus that stop
+- Trades only when **H1 and H4 agree**, during London and New York hours
 - Marks recent **A** swing highs and **V** swing lows
 - Macro strip: dollar index, US 10-year, VIX, silver, and upcoming USD events
 - Trade record with TP / SL counts, win rate, and a **PDF download**
@@ -17,7 +18,7 @@ The chart is live spot gold. Candle shape comes from COMEX futures and is shifte
 
 ## Win rate
 
-The desk shows the **measured** win rate of this exact rule on the loaded history (about 60 days). On the research pass that set the rule, M5 was about **70% on 27 closed trades**, with a tiny positive average. That sample is too small to promise 70–80% going forward. If the history does not support a trade, the card says **stand aside**.
+The desk shows the **measured** win rate of this exact rule on OANDA history. A 1:2 target with a stop of at most 50 pips does **not** clear 70% on the loaded sample. The number on screen is the real count of TP versus SL. It is not adjusted upward.
 
 Not financial advice.
 

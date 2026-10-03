@@ -1,128 +1,165 @@
 import type { Candle, Timeframe } from "@/lib/types";
 
-const YAHOO: Record<Timeframe, { interval: string; range: string }> = {
-  "5m": { interval: "5m", range: "60d" },
-  "15m": { interval: "15m", range: "60d" },
-  "30m": { interval: "30m", range: "60d" },
-  "1h": { interval: "60m", range: "3mo" },
-  "4h": { interval: "60m", range: "6mo" },
-  "1d": { interval: "1d", range: "2y" },
+const RESOLUTION: Record<Timeframe, string> = {
+  "5m": "5",
+  "15m": "15",
+  "30m": "30",
+  "1h": "60",
+  "4h": "240",
+  "1d": "1D",
 };
+
+const ORDER: Timeframe[] = ["5m", "15m", "30m", "1h", "4h", "1d"];
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-function aggregate(candles: Candle[], seconds: number): Candle[] {
-  const out: Candle[] = [];
-  let bucket: Candle | null = null;
-  let start = 0;
-  for (const c of candles) {
-    const bucketStart = Math.floor(c.time / seconds) * seconds;
-    if (!bucket || bucketStart !== start) {
-      if (bucket) out.push(bucket);
-      start = bucketStart;
-      bucket = { ...c, time: bucketStart };
-    } else {
-      bucket.high = Math.max(bucket.high, c.high);
-      bucket.low = Math.min(bucket.low, c.low);
-      bucket.close = c.close;
-      bucket.volume += c.volume;
+function packet(payload: object) {
+  const msg = JSON.stringify(payload);
+  return `~m~${msg.length}~m~${msg}`;
+}
+
+function parseMessages(raw: string) {
+  const out: { m?: string; p?: unknown[] }[] = [];
+  for (const part of raw.split(/~m~\d+~m~/)) {
+    if (!part.startsWith("{")) continue;
+    try {
+      out.push(JSON.parse(part));
+    } catch {
+      /* ignore partial frames */
     }
   }
-  if (bucket) out.push(bucket);
   return out;
 }
 
-async function yahooCandles(tf: Timeframe): Promise<Candle[]> {
-  const { interval, range } = YAHOO[tf];
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=${interval}&range=${range}`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Price history HTTP ${res.status}`);
-  const data = await res.json();
-  const result = data?.chart?.result?.[0];
-  const timestamps: number[] = result?.timestamp ?? [];
-  const quote = result?.indicators?.quote?.[0];
-  if (!quote || timestamps.length < 30) throw new Error("No gold candles");
+function loadOandaTimeframe(tf: Timeframe): Promise<Candle[]> {
+  const socket = new WebSocket(
+    "wss://data.tradingview.com/socket.io/websocket",
+    { headers: { Origin: "https://www.tradingview.com" } } as unknown as string[]
+  );
+  const chart = `cs_${tf}`;
+  const seen = new Set<number>();
+  const bars: Candle[] = [];
 
-  const candles: Candle[] = [];
-  for (let i = 0; i < timestamps.length; i++) {
-    const open = quote.open?.[i];
-    const high = quote.high?.[i];
-    const low = quote.low?.[i];
-    const close = quote.close?.[i];
-    if (
-      typeof open !== "number" ||
-      typeof high !== "number" ||
-      typeof low !== "number" ||
-      typeof close !== "number"
-    ) {
-      continue;
-    }
-    candles.push({
-      time: timestamps[i],
-      open,
-      high,
-      low,
-      close,
-      volume: quote.volume?.[i] ?? 0,
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error(`OANDA ${tf} chart timed out`));
+    }, 20000);
+
+    socket.addEventListener("open", () => {
+      socket.send(packet({ m: "set_auth_token", p: ["unauthorized_user_token"] }));
+      socket.send(packet({ m: "chart_create_session", p: [chart, ""] }));
+      const symbol =
+        "=" +
+        JSON.stringify({
+          symbol: "OANDA:XAUUSD",
+          adjustment: "splits",
+          session: "regular",
+        });
+      socket.send(packet({ m: "resolve_symbol", p: [chart, "sym_xau", symbol] }));
+      socket.send(
+        packet({
+          m: "create_series",
+          p: [chart, "s1", "s1", "sym_xau", RESOLUTION[tf], 5000, ""],
+        })
+      );
     });
-  }
-  if (tf === "4h") return aggregate(candles, 4 * 3600);
-  return candles;
+
+    socket.addEventListener("message", (event) => {
+      const raw = String(event.data);
+      const beat = raw.match(/~h~\d+/);
+      if (beat) socket.send(beat[0]);
+      for (const msg of parseMessages(raw)) {
+        const container = msg.p?.[1] as { s1?: { s?: { v: number[] }[] } } | undefined;
+        const series = container?.s1?.s;
+        if (Array.isArray(series)) {
+          for (const row of series) {
+            const v = row.v;
+            if (!Array.isArray(v) || v.length < 5 || seen.has(v[0])) continue;
+            seen.add(v[0]);
+            bars.push({
+              time: v[0],
+              open: round2(v[1]),
+              high: round2(v[2]),
+              low: round2(v[3]),
+              close: round2(v[4]),
+              volume: v[5] ?? 0,
+            });
+          }
+        }
+        if (msg.m === "series_completed") {
+          clearTimeout(timer);
+          bars.sort((a, b) => a.time - b.time);
+          socket.close();
+          resolve(bars);
+        }
+        if (msg.m === "symbol_error" || msg.m === "series_error") {
+          clearTimeout(timer);
+          socket.close();
+          reject(new Error(`OANDA ${tf} symbol was rejected`));
+        }
+      }
+    });
+
+    socket.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error(`OANDA ${tf} chart connection failed`));
+    });
+  });
 }
 
-export async function fetchSpotPrice(): Promise<number | null> {
-  try {
-    const res = await fetch("https://api.gold-api.com/price/XAU", {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const price = Number(data?.price);
-    return Number.isFinite(price) ? price : null;
-  } catch {
-    return null;
+async function loadOandaBook(): Promise<Record<Timeframe, Candle[]>> {
+  const rows = await Promise.all(
+    ORDER.map(async (tf) => [tf, await loadOandaTimeframe(tf)] as const)
+  );
+  const books = {} as Record<Timeframe, Candle[]>;
+  for (const [tf, candles] of rows) {
+    if (candles.length < 30) throw new Error(`OANDA ${tf} history is incomplete`);
+    books[tf] = candles;
   }
+  return books;
+}
+
+let cached: { at: number; book: Record<Timeframe, Candle[]> } | null = null;
+let pending: Promise<Record<Timeframe, Candle[]>> | null = null;
+
+async function book(): Promise<Record<Timeframe, Candle[]>> {
+  if (cached && Date.now() - cached.at < 20000) return cached.book;
+  if (!pending) {
+    pending = loadOandaBook()
+      .then((next) => {
+        cached = { at: Date.now(), book: next };
+        pending = null;
+        return next;
+      })
+      .catch((error) => {
+        pending = null;
+        throw error;
+      });
+  }
+  return pending;
 }
 
 export interface SpotSeries {
   candles: Candle[];
-  /** Live XAUUSD spot. */
   spot: number;
-  /** Unadjusted COMEX futures last price, for reference only. */
   futures: number;
-  /** spot − futures. Applied to every candle so the chart matches XAUUSD. */
   basis: number;
   source: string;
   symbol: "XAUUSD";
 }
 
 export async function fetchSpotSeries(tf: Timeframe): Promise<SpotSeries> {
-  const [raw, spot] = await Promise.all([yahooCandles(tf), fetchSpotPrice()]);
-  const futures = raw[raw.length - 1].close;
-  const basis = spot == null ? 0 : spot - futures;
-  const candles = raw.map((c) => ({
-    time: c.time,
-    open: round2(c.open + basis),
-    high: round2(c.high + basis),
-    low: round2(c.low + basis),
-    close: round2(c.close + basis),
-    volume: c.volume,
-  }));
-  const aligned = spot != null;
+  const candles = (await book())[tf];
+  const spot = candles[candles.length - 1].close;
   return {
     candles,
-    spot: round2(aligned ? spot : futures),
-    futures: round2(futures),
-    basis: round2(basis),
+    spot,
+    futures: spot,
+    basis: 0,
     symbol: "XAUUSD",
-    source: aligned
-      ? `XAUUSD spot ${round2(spot)} · candle shape from COMEX shifted ${round2(basis)} so prices match spot gold, not the futures quote`
-      : "COMEX gold futures GC=F — live spot feed unavailable, this is NOT XAUUSD spot",
+    source: "OANDA:XAUUSD",
   };
 }
