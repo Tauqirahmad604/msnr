@@ -3,7 +3,6 @@ import {
   analyzeTimeframe,
   lastAtr,
   RULE_TEXT,
-  selectKeyLevels,
   type EntryTf,
 } from "@/lib/engine";
 import { fetchMacro } from "@/lib/macro";
@@ -69,17 +68,6 @@ export async function GET() {
       rule: RULE_TEXT,
       macro,
       frames,
-      levels: selectKeyLevels(
-        [
-          { timeframe: "5m", candles: m5.candles },
-          { timeframe: "15m", candles: m15.candles },
-          { timeframe: "30m", candles: m30.candles },
-          { timeframe: "1h", candles: h1.candles },
-          { timeframe: "4h", candles: h4.candles },
-          { timeframe: "1d", candles: d1.candles },
-        ],
-        m5.spot
-      ),
       updatedAt: Date.now(),
     };
     cache = { at: Date.now(), body };
