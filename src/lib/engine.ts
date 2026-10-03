@@ -64,6 +64,15 @@ export interface Level {
   label: string;
 }
 
+export interface KeyLevel {
+  side: "A" | "V";
+  price: number;
+  timeframes: string[];
+  touches: number;
+  distancePips: number;
+  score: number;
+}
+
 export interface ScanResult {
   biasH1: Bias;
   biasH4: Bias;
@@ -110,6 +119,124 @@ export function swingPoints(candles: Candle[], lookback: number): Swing[] {
     if (low) swings.push({ index: i, time: c.time, price: c.low, type: "low" });
   }
   return swings;
+}
+
+const TF_WEIGHT: Record<string, number> = {
+  "5m": 1,
+  "15m": 2,
+  "30m": 3,
+  "1h": 4,
+  "4h": 5,
+  "1d": 6,
+};
+
+/** Farther than this, a line flattens the intraday chart. 360 pips = 36.0 price. */
+const MAX_LEVEL_PIPS = 360;
+/** Swings inside this band are the same pool. 15 pips = 1.5 price. */
+const CLUSTER_PIPS = 15;
+
+interface NominatedSwing {
+  side: "A" | "V";
+  price: number;
+  time: number;
+  timeframe: string;
+}
+
+/** Swings price has not traded through, still on the correct side, close enough to trade. */
+function untouchedSwings(candles: Candle[], side: "A" | "V", price: number): NominatedSwing[] {
+  const swings = swingPoints(candles, 4).filter((swing) =>
+    side === "A" ? swing.type === "high" : swing.type === "low"
+  );
+  const alive: NominatedSwing[] = [];
+  for (const swing of swings) {
+    let broken = false;
+    for (let i = swing.index + 1; i < candles.length; i++) {
+      if (side === "A" && candles[i].high > swing.price) {
+        broken = true;
+        break;
+      }
+      if (side === "V" && candles[i].low < swing.price) {
+        broken = true;
+        break;
+      }
+    }
+    if (broken) continue;
+    if (side === "A" && swing.price <= price + 0.05) continue;
+    if (side === "V" && swing.price >= price - 0.05) continue;
+    const distancePips = Math.abs(swing.price - price) / PIP;
+    if (distancePips > MAX_LEVEL_PIPS) continue;
+    alive.push({ side, price: swing.price, time: swing.time, timeframe: "" });
+  }
+  return alive;
+}
+
+/**
+ * One A above price and one V below price.
+ * Every OANDA timeframe contributes its untouched swings. A cluster is kept
+ * only when it includes the highest timeframe that still has a live swing on
+ * that side. If several do, the nearest one is the tradable level.
+ */
+export function selectKeyLevels(
+  books: { timeframe: string; candles: Candle[] }[],
+  price: number
+): KeyLevel[] {
+  const nominated: NominatedSwing[] = [];
+  for (const book of books) {
+    for (const side of ["A", "V"] as const) {
+      for (const swing of untouchedSwings(book.candles, side, price)) {
+        nominated.push({ ...swing, timeframe: book.timeframe });
+      }
+    }
+  }
+
+  const pick = (side: "A" | "V"): KeyLevel | null => {
+    const rows = nominated
+      .filter((level) => level.side === side)
+      .sort((a, b) => a.price - b.price);
+    if (rows.length === 0) return null;
+
+    const clusters: NominatedSwing[][] = [];
+    for (const row of rows) {
+      const cluster = clusters.find((group) => {
+        const prices = group.map((level) => level.price);
+        const span = Math.max(...prices, row.price) - Math.min(...prices, row.price);
+        return span / PIP <= CLUSTER_PIPS;
+      });
+      if (cluster) cluster.push(row);
+      else clusters.push([row]);
+    }
+
+    const scored = clusters.map((group) => {
+      const timeframes = [...new Set(group.map((level) => level.timeframe))].sort(
+        (a, b) => (TF_WEIGHT[b] ?? 0) - (TF_WEIGHT[a] ?? 0)
+      );
+      const weight = timeframes.reduce((sum, timeframe) => sum + (TF_WEIGHT[timeframe] ?? 1), 0);
+      const priceLevel =
+        side === "A"
+          ? Math.max(...group.map((level) => level.price))
+          : Math.min(...group.map((level) => level.price));
+      const touches = new Set(group.map((level) => Math.floor(level.time / 1800))).size;
+      return {
+        side,
+        price: round2(priceLevel),
+        timeframes,
+        touches,
+        distancePips: pips(priceLevel - price),
+        score: weight * 10 + timeframes.length * 8,
+      };
+    });
+
+    const bestWeight = Math.max(
+      ...scored.flatMap((level) => level.timeframes.map((timeframe) => TF_WEIGHT[timeframe] ?? 1))
+    );
+    const perfect = scored.filter((level) =>
+      level.timeframes.some((timeframe) => (TF_WEIGHT[timeframe] ?? 0) === bestWeight)
+    );
+    perfect.sort((a, b) => a.distancePips - b.distancePips || b.score - a.score);
+    return perfect[0] ?? null;
+  };
+
+  return [pick("A"), pick("V")].filter((level): level is KeyLevel => level !== null);
 }
 
 export function structureBias(candles: Candle[]): Bias {

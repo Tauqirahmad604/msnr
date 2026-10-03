@@ -98,12 +98,12 @@ function implication(quotes: MacroQuote[]): string {
     return "Macro feed incomplete. Stand aside around high-impact USD releases.";
   }
   if (dxy.changePercent > 0.15 && yield10.changePercent > 0.15) {
-    return "Headwind for gold: the dollar and US 10-year yield are both firm. Prefer short sweeps, skip longs into strength.";
+    return "Headwind for gold: the dollar and US 10-year yield are both firm. A short still needs price under the 200 EMA and a close that loses the 20 EMA.";
   }
   if (dxy.changePercent < -0.15 && yield10.changePercent < -0.15) {
-    return "Tailwind for gold: the dollar and US 10-year yield are both soft. Prefer long sweeps, skip shorts into weakness.";
+    return "Tailwind for gold: the dollar and US 10-year yield are both soft. A long still needs price above the 200 EMA and a close that reclaims the 20 EMA.";
   }
-  return "Mixed macro. Only take an exact M5/M15/M30 sweep that agrees with H1 and H4. No trade is allowed when they conflict.";
+  return "Mixed macro. The two lines on the chart are the only active A and V. A long still needs a close back above the 20 EMA while price is above the 200 EMA. A short is the mirror.";
 }
 
 export async function fetchMacro(): Promise<MacroSnapshot> {

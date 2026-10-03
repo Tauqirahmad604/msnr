@@ -33,6 +33,15 @@ interface Frame {
   biasD1: string;
 }
 
+interface KeyLevel {
+  side: "A" | "V";
+  price: number;
+  timeframes: string[];
+  touches: number;
+  distancePips: number;
+  score: number;
+}
+
 interface Desk {
   symbol: "XAUUSD";
   spot: number;
@@ -40,6 +49,7 @@ interface Desk {
   basis: number;
   source: string;
   rule: string;
+  levels: KeyLevel[];
   macro: {
     quotes: { symbol: string; name: string; price: number; changePercent: number }[];
     events: {
@@ -192,20 +202,13 @@ export function Dashboard() {
   const liveRate = liveDecided === 0 ? null : Math.round((liveWins / liveDecided) * 1000) / 10;
 
   const marks = useMemo(() => {
-    if (!frame) return [];
-    return [
-      ...frame.aLevels.slice(-3).map((level) => ({
-        price: level.price,
-        title: `A ${level.price.toFixed(1)}`,
-        color: "rgba(154, 52, 18, 0.75)",
-      })),
-      ...frame.vLevels.slice(-3).map((level) => ({
-        price: level.price,
-        title: `V ${level.price.toFixed(1)}`,
-        color: "rgba(15, 118, 110, 0.8)",
-      })),
-    ];
-  }, [frame]);
+    if (!desk) return [];
+    return desk.levels.map((level) => ({
+      price: level.price,
+      title: `${level.side} ${level.timeframes[0].toUpperCase()}`,
+      color: level.side === "A" ? "rgba(154, 52, 18, 0.9)" : "rgba(15, 118, 110, 0.95)",
+    }));
+  }, [desk]);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
@@ -298,9 +301,38 @@ export function Dashboard() {
               trade={frame.live ? toSetup(frame.live) : null}
               marks={marks}
             />
-            <p className="mt-2 px-1 text-xs text-[var(--ink-mute)]">
-              A = swing highs. V = swing lows. Entry, SL, and TP are one price each, not a zone.
-            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {desk.levels.length === 0 && (
+                <p className="px-1 text-sm text-[var(--ink-soft)]">
+                  No untouched A or V is close enough to trade. Broken swings stay off the chart.
+                </p>
+              )}
+              {desk.levels.length > 0 && (
+                <p className="px-1 text-sm text-[var(--ink-soft)] sm:col-span-2">
+                  One A and one V. Each line is the nearest untouched swing that the highest OANDA timeframe still holds.
+                </p>
+              )}
+              {desk.levels.map((level) => (
+                <div
+                  key={`${level.side}-${level.price}`}
+                  className="rounded-lg border border-[var(--line)] bg-white/70 px-3 py-2"
+                >
+                  <p className="text-[11px] tracking-[0.14em] text-[var(--ink-mute)] uppercase">
+                    {level.side === "A" ? "Active A · sell-side high" : "Active V · buy-side low"}
+                  </p>
+                  <p className="mt-1 text-lg tabular-nums text-[var(--ink)]">
+                    {level.price.toFixed(2)}
+                    <span className="ml-2 text-sm text-[var(--ink-soft)]">
+                      {level.distancePips} pips away
+                    </span>
+                  </p>
+                  <p className="text-xs text-[var(--ink-soft)]">
+                    {level.timeframes.map((item) => item.toUpperCase()).join(" + ")}
+                    {level.touches > 1 ? ` · ${level.touches} touches` : " · single clean swing"}
+                  </p>
+                </div>
+              ))}
+            </div>
           </section>
 
           <section className="grid gap-3 lg:grid-cols-3">
