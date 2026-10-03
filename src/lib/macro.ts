@@ -17,6 +17,7 @@ export interface CalendarEvent {
 export interface MacroSnapshot {
   quotes: MacroQuote[];
   events: CalendarEvent[];
+  calendarNote: string;
   implication: string;
   updatedAt: number;
 }
@@ -43,7 +44,7 @@ async function yahooQuote(symbol: string, name: string): Promise<MacroQuote | nu
   }
 }
 
-async function calendar(): Promise<CalendarEvent[]> {
+async function calendar(): Promise<{ events: CalendarEvent[]; note: string }> {
   const urls = [
     "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
     "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
@@ -75,13 +76,19 @@ async function calendar(): Promise<CalendarEvent[]> {
       /* keep partial calendar */
     }
   }
-  const now = Date.now() - 6 * 3600 * 1000;
-  const upcoming = rows
-    .filter((e) => new Date(e.date).getTime() >= now)
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const unique = new Map<string, CalendarEvent>();
-  for (const event of upcoming) unique.set(`${event.date}-${event.title}`, event);
-  return [...unique.values()].slice(0, 6);
+  for (const event of rows) unique.set(`${event.date}-${event.title}`, event);
+  const all = [...unique.values()].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+  const now = Date.now() - 6 * 3600 * 1000;
+  const upcoming = all.filter((event) => new Date(event.date).getTime() >= now);
+  if (upcoming.length > 0) return { events: upcoming.slice(0, 6), note: "Upcoming USD releases" };
+  const recent = [...all].reverse().slice(0, 5);
+  return {
+    events: recent,
+    note: "The free calendar has no future week yet. These are the latest USD releases.",
+  };
 }
 
 function implication(quotes: MacroQuote[]): string {
@@ -100,7 +107,7 @@ function implication(quotes: MacroQuote[]): string {
 }
 
 export async function fetchMacro(): Promise<MacroSnapshot> {
-  const [dxy, yield10, vix, silver, events] = await Promise.all([
+  const [dxy, yield10, vix, silver, calendarFeed] = await Promise.all([
     yahooQuote("DX-Y.NYB", "Dollar index"),
     yahooQuote("^TNX", "US 10-year"),
     yahooQuote("^VIX", "VIX"),
@@ -110,7 +117,8 @@ export async function fetchMacro(): Promise<MacroSnapshot> {
   const quotes = [dxy, yield10, vix, silver].filter((q): q is MacroQuote => q !== null);
   return {
     quotes,
-    events,
+    events: calendarFeed.events,
+    calendarNote: calendarFeed.note,
     implication: implication(quotes),
     updatedAt: Date.now(),
   };

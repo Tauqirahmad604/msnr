@@ -50,6 +50,7 @@ interface Desk {
       forecast: string;
       previous: string;
     }[];
+    calendarNote: string;
     implication: string;
   };
   frames: Frame[];
@@ -403,6 +404,7 @@ export function Dashboard() {
               </div>
               <div className="rounded-xl border border-[var(--line)] bg-white/70 p-5">
                 <h2 className="text-sm tracking-[0.16em] text-[var(--ink-mute)] uppercase">USD calendar</h2>
+                <p className="mt-1 text-xs text-[var(--ink-mute)]">{desk.macro.calendarNote}</p>
                 <ul className="mt-3 space-y-3">
                   {desk.macro.events.length === 0 && (
                     <li className="text-sm text-[var(--ink-soft)]">No upcoming USD events in the free calendar feed.</li>
