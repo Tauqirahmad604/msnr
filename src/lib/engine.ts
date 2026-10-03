@@ -26,7 +26,7 @@ export interface ModelConfig {
 export const MIN_RR = 2;
 
 export const RULE_TEXT =
-  "Chart is OANDA:XAUUSD. Exact entry is the close of a sweep candle. Stop is the sweep wick plus 3 pips and must be 50 pips or less. Target is at least twice the stop (minimum 1:2). H1 and H4 must agree. London and New York hours only.";
+  "Chart is OANDA:XAUUSD. Long only above the 200 EMA after price reclaims the 20 EMA on a bullish close. Short only below the 200 EMA after price loses the 20 EMA on a bearish close. Exact entry is that close. Stop is beyond the signal wick and must be 50 pips or less. Target is exactly twice the stop.";
 
 export const LIVE_CONFIG: ModelConfig = {
   tpR: MIN_RR,
@@ -151,7 +151,7 @@ function snapLevels(
   side: "long" | "short"
 ): { stopLoss: number; takeProfit: number } | null {
   const stopPips = Math.round(Math.abs(entry - structuralStop) / PIP);
-  if (stopPips < 10 || stopPips > MAX_STOP_PIPS) return null;
+  if (stopPips < 8 || stopPips > MAX_STOP_PIPS) return null;
   const risk = stopPips * PIP;
   const reward = stopPips * MIN_RR * PIP;
   if (side === "long") {
@@ -366,6 +366,77 @@ function resolveShort(
   return { status: "open" as const, closedAt: null, exitIndex: candles.length - 1 };
 }
 
+function emaSeries(candles: Candle[], period: number): number[] {
+  const k = 2 / (period + 1);
+  const out: number[] = new Array(candles.length).fill(Number.NaN);
+  if (candles.length < period) return out;
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += candles[i].close;
+  let value = sum / period;
+  out[period - 1] = value;
+  for (let i = period; i < candles.length; i++) {
+    value = candles[i].close * k + value * (1 - k);
+    out[i] = value;
+  }
+  return out;
+}
+
+/** Best walk-forward rule found under the hard constraints: OANDA, stop ≤ 50 pips, target = 2R. */
+export function scanTrendReclaim(candles: Candle[], timeframe: EntryTf): ExactTrade[] {
+  const ema20 = emaSeries(candles, 20);
+  const ema200 = emaSeries(candles, 200);
+  const trades: ExactTrade[] = [];
+  let busyUntil = -1;
+
+  for (let i = 210; i < candles.length - 1; i++) {
+    if (i <= busyUntil) continue;
+    if (!Number.isFinite(ema200[i]) || !Number.isFinite(ema20[i - 1])) continue;
+    const candle = candles[i];
+    const previous = candles[i - 1];
+    let side: "long" | "short" | null = null;
+    if (
+      candle.close > ema200[i] &&
+      previous.close < ema20[i - 1] &&
+      candle.close > ema20[i] &&
+      candle.close > candle.open
+    ) {
+      side = "long";
+    } else if (
+      candle.close < ema200[i] &&
+      previous.close > ema20[i - 1] &&
+      candle.close < ema20[i] &&
+      candle.close < candle.open
+    ) {
+      side = "short";
+    }
+    if (!side) continue;
+
+    const entry = round2(candle.close);
+    const structural = side === "long" ? candle.low - 0.2 : candle.high + 0.2;
+    const snapped = snapLevels(entry, structural, side);
+    if (!snapped) continue;
+    const resolved =
+      side === "long"
+        ? resolveLong(candles, i, snapped.stopLoss, snapped.takeProfit)
+        : resolveShort(candles, i, snapped.stopLoss, snapped.takeProfit);
+    const stopPips = Math.round(Math.abs(entry - snapped.stopLoss) / PIP);
+    trades.push(
+      trade({
+        timeframe,
+        side,
+        entry,
+        stopLoss: snapped.stopLoss,
+        takeProfit: snapped.takeProfit,
+        openedAt: candle.time,
+        reason: `OANDA ${timeframe} ${side} at ${entry}. EMA20 reclaim in the EMA200 trend. Stop ${snapped.stopLoss} (${stopPips} pips). Target ${snapped.takeProfit} is 1:2.`,
+        ...resolved,
+      })
+    );
+    busyUntil = resolved.exitIndex;
+  }
+  return trades;
+}
+
 export function analyzeTimeframe(
   candles: Candle[],
   timeframe: EntryTf,
@@ -374,8 +445,8 @@ export function analyzeTimeframe(
   d1: Candle[],
   config: ModelConfig = LIVE_CONFIG
 ): ScanResult {
-  const trades = scanEntries(candles, timeframe, h1, h4, config, d1).filter(
-    (t) => t.stopPips <= MAX_STOP_PIPS && t.stopPips > 0
+  const trades = scanTrendReclaim(candles, timeframe).filter(
+    (t) => t.stopPips <= MAX_STOP_PIPS && t.tpPips >= t.stopPips * 2
   );
   const live = [...trades].reverse().find((t) => t.status === "open") ?? null;
   const swings = swingPoints(candles, 3);

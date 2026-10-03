@@ -10,7 +10,7 @@ The chart is **OANDA:XAUUSD**, the same symbol used on TradingView.
 - Exact **M5 / M15 / M30** entries (one price, not a zone)
 - Stop must be **50 pips or less** (1 pip = 0.1)
 - Target is at least **1:2** versus that stop
-- Trades only when **H1 and H4 agree**, during London and New York hours
+- Longs only above the 200 EMA after an EMA20 reclaim. Shorts only below the 200 EMA after an EMA20 loss.
 - Marks recent **A** swing highs and **V** swing lows
 - Macro strip: dollar index, US 10-year, VIX, silver, and upcoming USD events
 - Trade record with TP / SL counts, win rate, and a **PDF download**

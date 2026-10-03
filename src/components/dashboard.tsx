@@ -74,7 +74,7 @@ function readJournal(): ExactTrade[] {
 function asideReason(frame: Frame) {
   if (frame.biasH1 === "ranging") return "H1 structure is ranging. No exact entry.";
   if (frame.biasH1 !== frame.biasH4) return "H1 and H4 disagree. Standing aside.";
-  return "No sweep with a stop of 50 pips or less and a 1:2 target.";
+  return "No EMA20 reclaim in the EMA200 trend with a stop of 50 pips or less.";
 }
 
 function toSetup(trade: ExactTrade): TradeSetup {
@@ -346,7 +346,7 @@ export function Dashboard() {
                 ))}
               </div>
               <p className="mt-3 text-xs leading-relaxed text-[var(--ink-mute)]">
-                This is the measured win rate on OANDA history for a minimum 1:2 target and a stop of 50 pips or less. On this history that rate is not above 70%. The desk will not print a higher number than the trades it actually closed.
+                Same rules on every row: OANDA prices, stop at most 50 pips, target exactly twice the stop. No tested rule, including published gold SMC systems, held a win rate above 70% on the later half of this history. This table is the real count.
               </p>
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-left text-sm">
