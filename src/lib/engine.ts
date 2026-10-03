@@ -58,10 +58,13 @@ export interface ExactTrade {
   reason: string;
 }
 
+export type LevelGrade = "A" | "A+" | "A++";
+
 export interface Level {
   price: number;
   time: number;
   label: string;
+  grade: LevelGrade;
 }
 
 export interface ScanResult {
@@ -112,22 +115,38 @@ export function swingPoints(candles: Candle[], lookback: number): Swing[] {
   return swings;
 }
 
+const TF_RANK: Record<string, number> = {
+  "1m": 1,
+  "5m": 1,
+  "15m": 2,
+  "30m": 2,
+  "1h": 3,
+  "4h": 4,
+  "1d": 5,
+  "1w": 6,
+  "1mo": 7,
+};
+
+interface RawLevel {
+  side: "A" | "V";
+  price: number;
+  time: number;
+}
+
 /**
  * Alchemist SNR. An A is a bullish candle followed by a bearish candle,
  * and the line sits on that bullish close. A V is a bearish candle followed
  * by a bullish candle, on the bearish close. Wicks do not place the line.
- * A later wick or body touch removes it. Only fresh levels inside the
- * visible window are returned, nearest first.
+ * A later wick or body touch removes it.
  */
-export function freshSnrLevels(candles: Candle[], windowBars = 220): { aLevels: Level[]; vLevels: Level[] } {
-  const empty = { aLevels: [] as Level[], vLevels: [] as Level[] };
+function collectFresh(candles: Candle[], windowBars = 220): RawLevel[] {
   const look = 3;
-  if (candles.length < look * 2 + 2) return empty;
+  if (candles.length < look * 2 + 2) return [];
   const price = candles[candles.length - 1].close;
   const visible = candles.slice(-windowBars);
   const ceiling = Math.max(...visible.map((candle) => candle.high));
   const floor = Math.min(...visible.map((candle) => candle.low));
-  const found: { side: "A" | "V"; price: number; time: number }[] = [];
+  const found: RawLevel[] = [];
 
   for (let i = look; i < candles.length - look - 1; i++) {
     const candle = candles[i];
@@ -168,19 +187,72 @@ export function freshSnrLevels(candles: Candle[], windowBars = 220): { aLevels: 
     if (level > ceiling || level < floor) continue;
     found.push({ side, price: level, time: candle.time });
   }
+  return found;
+}
 
+function nearestRaw(rows: RawLevel[], price: number, side: "A" | "V", count: number) {
+  return rows
+    .filter((level) => level.side === side)
+    .sort((a, b) => Math.abs(a.price - price) - Math.abs(b.price - price))
+    .slice(0, count);
+}
+
+function gradeOf(
+  timeframe: string,
+  level: RawLevel,
+  pool: { timeframe: string; levels: RawLevel[] }[],
+  price: number
+): LevelGrade {
+  const band = Math.max(price * 0.0012, 0.5);
+  const own = TF_RANK[timeframe] ?? 1;
+  let bestOther = 0;
+  for (const book of pool) {
+    if (book.timeframe === timeframe) continue;
+    const agrees = book.levels.some(
+      (other) => other.side === level.side && Math.abs(other.price - level.price) <= band
+    );
+    if (agrees) bestOther = Math.max(bestOther, TF_RANK[book.timeframe] ?? 1);
+  }
+  if (bestOther >= 5 || own >= 6) return "A++";
+  if (own >= 4 || bestOther >= 4) return "A+";
+  return "A";
+}
+
+export function freshSnrLevels(candles: Candle[], windowBars = 220): { aLevels: Level[]; vLevels: Level[] } {
+  if (candles.length === 0) return { aLevels: [], vLevels: [] };
+  const price = candles[candles.length - 1].close;
+  const found = collectFresh(candles, windowBars);
   const take = (side: "A" | "V") =>
-    found
-      .filter((level) => level.side === side)
-      .sort((a, b) => Math.abs(a.price - price) - Math.abs(b.price - price))
-      .slice(0, 3)
-      .map((level, index) => ({
+    nearestRaw(found, price, side, 3).map((level, index) => ({
+      price: round2(level.price),
+      time: level.time,
+      label: `${side}${index + 1}`,
+      grade: "A" as const,
+    }));
+  return { aLevels: take("A"), vLevels: take("V") };
+}
+
+/** Grade every timeframe together. A++ agrees with daily or higher. A+ is H4 or a daily level. A is local. */
+export function gradeAllSnr(
+  books: { timeframe: string; candles: Candle[] }[]
+): Record<string, { aLevels: Level[]; vLevels: Level[] }> {
+  const collected = books.map((book) => ({
+    timeframe: book.timeframe,
+    price: book.candles[book.candles.length - 1]?.close ?? 0,
+    levels: collectFresh(book.candles),
+  }));
+  const graded: Record<string, { aLevels: Level[]; vLevels: Level[] }> = {};
+  for (const book of collected) {
+    const take = (side: "A" | "V") =>
+      nearestRaw(book.levels, book.price, side, 3).map((level, index) => ({
         price: round2(level.price),
         time: level.time,
         label: `${side}${index + 1}`,
+        grade: gradeOf(book.timeframe, level, collected, book.price),
       }));
-
-  return { aLevels: take("A"), vLevels: take("V") };
+    graded[book.timeframe] = { aLevels: take("A"), vLevels: take("V") };
+  }
+  return graded;
 }
 
 export function structureBias(candles: Candle[]): Bias {

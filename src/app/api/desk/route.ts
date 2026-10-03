@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   analyzeTimeframe,
-  freshSnrLevels,
+  gradeAllSnr,
   lastAtr,
   RULE_TEXT,
   type EntryTf,
@@ -51,16 +51,14 @@ export async function GET() {
         biasD1: scanned.biasD1,
       };
     });
-    const charts = CHART_TFS.map((tf) => {
-      const marks = freshSnrLevels(series[tf]);
-      return {
-        timeframe: tf,
-        candles: thin(series[tf]),
-        aLevels: marks.aLevels,
-        vLevels: marks.vLevels,
-        atr: lastAtr(series[tf]),
-      };
-    });
+    const graded = gradeAllSnr(CHART_TFS.map((tf) => ({ timeframe: tf, candles: series[tf] })));
+    const charts = CHART_TFS.map((tf) => ({
+      timeframe: tf,
+      candles: thin(series[tf]),
+      aLevels: graded[tf].aLevels,
+      vLevels: graded[tf].vLevels,
+      atr: lastAtr(series[tf]),
+    }));
 
     const body = {
       symbol: "XAUUSD" as const,

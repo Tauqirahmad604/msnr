@@ -42,6 +42,6 @@ npm run start
 cloudflared tunnel --url http://127.0.0.1:43127
 ```
 
-The `trycloudflare.com` URL stays up only as long as that process does.
+A `trycloudflare.com` URL is temporary. It keeps working after your own laptop is off, because the app is not running on that laptop. It stops when this cloud machine stops, and Cloudflare also expires quick tunnels on its own.
 
-For a free URL that survives restarts, import the repo into [Vercel Hobby](https://vercel.com) (free tier) and deploy. No paid plan is required for this app. There is no database: the PDF and browser journal live on the device you use.
+For a URL that stays up on its own, import the repo into [Vercel Hobby](https://vercel.com) and deploy. No paid plan is required. There is no database: the PDF and browser journal live on the device you use.

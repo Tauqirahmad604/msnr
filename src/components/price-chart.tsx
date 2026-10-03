@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import {
   CandlestickSeries,
   ColorType,
+  LineSeries,
   createChart,
   type IChartApi,
   type IPriceLine,
@@ -20,8 +21,10 @@ import type {
 
 interface ChartMark {
   price: number;
+  time: number;
   title: string;
   color: string;
+  width?: 1 | 2 | 3 | 4;
 }
 
 interface PriceChartProps {
@@ -43,6 +46,7 @@ export function PriceChart({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
+  const raysRef = useRef<ISeriesApi<"Line">[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -89,6 +93,7 @@ export function PriceChart({
       chartRef.current = null;
       seriesRef.current = null;
       linesRef.current = [];
+      raysRef.current = [];
     };
   }, []);
 
@@ -137,8 +142,29 @@ export function PriceChart({
       }
     }
 
+    for (const ray of raysRef.current) {
+      chart.removeSeries(ray);
+    }
+    raysRef.current = [];
+
+    const firstTime = data[0].time as number;
+    const lastTime = data[data.length - 1].time as number;
     for (const mark of marks) {
-      addLine(mark.price, mark.color, mark.title, 3);
+      const start = Math.max(mark.time, firstTime);
+      if (lastTime <= start) continue;
+      const ray = chart.addSeries(LineSeries, {
+        color: mark.color,
+        lineWidth: mark.width ?? 2,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: false,
+        title: mark.title,
+      });
+      ray.setData([
+        { time: start as Time, value: mark.price },
+        { time: lastTime as Time, value: mark.price },
+      ]);
+      raysRef.current.push(ray);
     }
 
     for (const ob of orderBlocks.slice(-3)) {

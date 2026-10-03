@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { freshSnrLevels, lastAtr } from "@/lib/engine";
+import { gradeAllSnr, lastAtr } from "@/lib/engine";
 import { BTC_TIMEFRAMES, fetchBtcBook } from "@/lib/market";
 import type { Candle } from "@/lib/types";
 
@@ -11,10 +11,6 @@ function thin(candles: Candle[]) {
   return candles.slice(-220);
 }
 
-function levels(candles: Candle[]) {
-  return freshSnrLevels(candles);
-}
-
 export async function GET() {
   if (cache && Date.now() - cache.at < 20000) {
     return NextResponse.json(cache.body);
@@ -22,13 +18,16 @@ export async function GET() {
 
   try {
     const book = await fetchBtcBook();
+    const graded = gradeAllSnr(
+      BTC_TIMEFRAMES.map((timeframe) => ({ timeframe, candles: book.candles[timeframe] }))
+    );
     const frames = BTC_TIMEFRAMES.map((timeframe) => {
       const candles = book.candles[timeframe];
       return {
         timeframe,
         candles: thin(candles),
-        aLevels: levels(candles).aLevels,
-        vLevels: levels(candles).vLevels,
+        aLevels: graded[timeframe].aLevels,
+        vLevels: graded[timeframe].vLevels,
         atr: lastAtr(candles),
       };
     });

@@ -40,8 +40,8 @@ interface Frame {
     decided: number;
     winRate: number | null;
   };
-  aLevels: { price: number; time: number; label: string }[];
-  vLevels: { price: number; time: number; label: string }[];
+  aLevels: { price: number; time: number; label: string; grade: "A" | "A+" | "A++" }[];
+  vLevels: { price: number; time: number; label: string; grade: "A" | "A+" | "A++" }[];
   recent: ExactTrade[];
   atr: number;
   biasH1: string;
@@ -52,16 +52,16 @@ interface Frame {
 interface ChartFrame {
   timeframe: ChartTf;
   candles: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
-  aLevels: { price: number; time: number; label: string }[];
-  vLevels: { price: number; time: number; label: string }[];
+  aLevels: { price: number; time: number; label: string; grade: "A" | "A+" | "A++" }[];
+  vLevels: { price: number; time: number; label: string; grade: "A" | "A+" | "A++" }[];
   atr: number;
 }
 
 interface BtcFrame {
   timeframe: BtcTf;
   candles: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
-  aLevels: { price: number; time: number; label: string }[];
-  vLevels: { price: number; time: number; label: string }[];
+  aLevels: { price: number; time: number; label: string; grade: "A" | "A+" | "A++" }[];
+  vLevels: { price: number; time: number; label: string; grade: "A" | "A+" | "A++" }[];
   atr: number;
 }
 
@@ -96,6 +96,31 @@ interface Desk {
   frames: Frame[];
   charts: ChartFrame[];
   updatedAt: number;
+}
+
+function rayMark(
+  level: { price: number; time: number; grade: "A" | "A+" | "A++" },
+  side: "A" | "V"
+) {
+  const color =
+    side === "A"
+      ? level.grade === "A++"
+        ? "rgba(154, 52, 18, 0.95)"
+        : level.grade === "A+"
+          ? "rgba(154, 52, 18, 0.82)"
+          : "rgba(154, 52, 18, 0.55)"
+      : level.grade === "A++"
+        ? "rgba(15, 118, 110, 0.95)"
+        : level.grade === "A+"
+          ? "rgba(15, 118, 110, 0.82)"
+          : "rgba(15, 118, 110, 0.55)";
+  return {
+    price: level.price,
+    time: level.time,
+    title: `${side} ${level.grade}`,
+    color,
+    width: (level.grade === "A++" ? 3 : level.grade === "A+" ? 2 : 1) as 1 | 2 | 3,
+  };
 }
 
 function pips(priceDistance: number) {
@@ -266,16 +291,8 @@ export function Dashboard() {
   const marks = useMemo(() => {
     if (!chart) return [];
     return [
-      ...chart.aLevels.map((level) => ({
-        price: level.price,
-        title: `A ${level.price.toFixed(1)}`,
-        color: "rgba(154, 52, 18, 0.75)",
-      })),
-      ...chart.vLevels.map((level) => ({
-        price: level.price,
-        title: `V ${level.price.toFixed(1)}`,
-        color: "rgba(15, 118, 110, 0.8)",
-      })),
+      ...chart.aLevels.map((level) => rayMark(level, "A")),
+      ...chart.vLevels.map((level) => rayMark(level, "V")),
     ];
   }, [chart]);
 
@@ -283,16 +300,8 @@ export function Dashboard() {
   const btcMarks = useMemo(() => {
     if (!btcFrame) return [];
     return [
-      ...btcFrame.aLevels.slice(-3).map((level) => ({
-        price: level.price,
-        title: `A ${level.price.toFixed(1)}`,
-        color: "rgba(154, 52, 18, 0.75)",
-      })),
-      ...btcFrame.vLevels.slice(-3).map((level) => ({
-        price: level.price,
-        title: `V ${level.price.toFixed(1)}`,
-        color: "rgba(15, 118, 110, 0.8)",
-      })),
+      ...btcFrame.aLevels.map((level) => rayMark(level, "A")),
+      ...btcFrame.vLevels.map((level) => rayMark(level, "V")),
     ];
   }, [btcFrame]);
 
@@ -402,7 +411,7 @@ export function Dashboard() {
               />
             )}
             <p className="mt-2 px-1 text-xs text-[var(--ink-mute)]">
-              A is a bullish close followed by a bearish candle. V is a bearish close followed by a bullish candle. The line is that close. A wick touch removes it.
+              Each line starts at the candle that created it. A++ agrees with daily or higher. A+ is H4, or a daily level on its own. A is fresh on this timeframe only.
             </p>
           </section>
 
@@ -446,7 +455,7 @@ export function Dashboard() {
               <PriceChart candles={btcFrame.candles} marks={btcMarks} />
             )}
             <p className="mt-2 px-1 text-xs text-[var(--ink-mute)]">
-              Same Alchemist rule as gold. A and V are fresh closes. A later wick removes the line.
+              Same grades as gold. The line starts at the origin candle and runs forward.
             </p>
           </section>
 
