@@ -349,7 +349,7 @@ export function Dashboard() {
                 ))}
               </div>
               <p className="mt-3 text-xs leading-relaxed text-[var(--ink-mute)]">
-                This percentage is the measured result of the rule on the loaded history. A 60-day sample can print near 70% and still fail next month. It is not a guarantee of a 70–80% win rate.
+                This percentage is the measured result of the rule on the loaded history. Reward is never smaller than the stop. It is not a promise for the next trade.
               </p>
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-left text-sm">

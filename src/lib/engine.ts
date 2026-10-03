@@ -24,11 +24,11 @@ export interface ModelConfig {
 }
 
 export const RULE_TEXT =
-  "Exact entry is the close of a sweep candle. Stop is the sweep wick plus 3 pips, and the trade is skipped unless that stop is 20–50 pips. Target is 15 pips. H1 and H4 must agree. ATR must be 40 pips or less, so a 50-pip stop is actually outside the noise. London and New York hours only.";
+  "Exact entry is the close of a sweep candle. Stop is the sweep wick plus 3 pips, and the trade is skipped unless that stop is 20–50 pips. Target is the same distance as the stop, so reward is never smaller than risk. H1 and H4 must agree. ATR must be 40 pips or less. London and New York hours only.";
 
 export const LIVE_CONFIG: ModelConfig = {
   tpR: 1,
-  fixedTpPips: 15,
+  fixedTpPips: null,
   minRisk: 2,
   maxRisk: 5,
   buffer: 0.3,
@@ -241,7 +241,7 @@ export function scanEntries(
       const risk = entry - stopLoss;
       if (risk < config.minRisk || risk > config.maxRisk) continue;
       const takeProfit = targetFrom(entry, risk, "long", config);
-      if (takeProfit - entry < 0.8) continue;
+      if (takeProfit - entry + 1e-9 < risk) continue;
       const resolved = resolveLong(candles, i, stopLoss, takeProfit);
       trades.push(
         trade({
@@ -269,7 +269,7 @@ export function scanEntries(
       const risk = stopLoss - entry;
       if (risk < config.minRisk || risk > config.maxRisk) continue;
       const takeProfit = targetFrom(entry, risk, "short", config);
-      if (entry - takeProfit < 0.8) continue;
+      if (entry - takeProfit + 1e-9 < risk) continue;
       const resolved = resolveShort(candles, i, stopLoss, takeProfit);
       trades.push(
         trade({

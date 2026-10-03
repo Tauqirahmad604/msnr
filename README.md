@@ -8,7 +8,7 @@ The chart is live spot gold. Candle shape comes from COMEX futures and is shifte
 
 - Exact **M5 / M15 / M30** entries (one price, not a zone)
 - Stop must be **20–50 pips** or the setup is skipped (1 pip = 0.1, so 50 pips = 5.0)
-- Target is **15 pips** on a confirmed liquidity sweep
+- Target is at least **1:1** with the stop. A setup is skipped when the target would be closer than the stop.
 - Trades only when **H1 and H4 agree**, ATR is at most 40 pips, and it is London/New York hours
 - Marks recent **A** swing highs and **V** swing lows
 - Macro strip: dollar index, US 10-year, VIX, silver, and upcoming USD events
