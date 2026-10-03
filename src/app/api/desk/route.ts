@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 import {
   analyzeTimeframe,
+  freshSnrLevels,
   lastAtr,
   RULE_TEXT,
   type EntryTf,
 } from "@/lib/engine";
 import { fetchMacro } from "@/lib/macro";
-import { fetchSpotSeries } from "@/lib/market";
+import { fetchGoldSeries, type GoldChartTimeframe } from "@/lib/market";
 import type { Candle } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const ENTRY_TFS: EntryTf[] = ["5m", "15m", "30m"];
+const CHART_TFS: GoldChartTimeframe[] = ["5m", "15m", "30m", "1h", "4h", "1d", "1w", "1mo"];
 
 let cache: { at: number; body: unknown } | null = null;
 
@@ -25,49 +27,51 @@ export async function GET() {
   }
 
   try {
-    const [m5, m15, m30, h1, h4, d1, macro] = await Promise.all([
-      fetchSpotSeries("5m"),
-      fetchSpotSeries("15m"),
-      fetchSpotSeries("30m"),
-      fetchSpotSeries("1h"),
-      fetchSpotSeries("4h"),
-      fetchSpotSeries("1d"),
-      fetchMacro(),
-    ]);
-
-    const series = { "5m": m5, "15m": m15, "30m": m30 } as const;
+    const [series, macro] = await Promise.all([fetchGoldSeries(), fetchMacro()]);
+    const spot = series["5m"][series["5m"].length - 1].close;
     const frames = ENTRY_TFS.map((tf) => {
       const scanned = analyzeTimeframe(
-        series[tf].candles,
+        series[tf],
         tf,
-        h1.candles,
-        h4.candles,
-        d1.candles
+        series["1h"],
+        series["4h"],
+        series["1d"]
       );
       return {
         timeframe: tf,
-        candles: thin(series[tf].candles),
+        candles: thin(series[tf]),
         live: scanned.live,
         stats: scanned.stats,
         aLevels: scanned.aLevels,
         vLevels: scanned.vLevels,
         recent: scanned.trades.slice(-20).reverse(),
-        atr: lastAtr(series[tf].candles),
+        atr: lastAtr(series[tf]),
         biasH1: scanned.biasH1,
         biasH4: scanned.biasH4,
         biasD1: scanned.biasD1,
       };
     });
+    const charts = CHART_TFS.map((tf) => {
+      const marks = freshSnrLevels(series[tf]);
+      return {
+        timeframe: tf,
+        candles: thin(series[tf]),
+        aLevels: marks.aLevels,
+        vLevels: marks.vLevels,
+        atr: lastAtr(series[tf]),
+      };
+    });
 
     const body = {
       symbol: "XAUUSD" as const,
-      spot: m5.spot,
-      futures: m5.futures,
-      basis: m5.basis,
-      source: m5.source,
+      spot,
+      futures: spot,
+      basis: 0,
+      source: "OANDA:XAUUSD",
       rule: RULE_TEXT,
       macro,
       frames,
+      charts,
       updatedAt: Date.now(),
     };
     cache = { at: Date.now(), body };

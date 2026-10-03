@@ -10,6 +10,13 @@ const RESOLUTION: Record<Timeframe, string> = {
 };
 
 const ORDER: Timeframe[] = ["5m", "15m", "30m", "1h", "4h", "1d"];
+const GOLD_EXTRA = ["1w", "1mo"] as const;
+const GOLD_EXTRA_RESOLUTION: Record<(typeof GOLD_EXTRA)[number], string> = {
+  "1w": "1W",
+  "1mo": "1M",
+};
+
+export type GoldChartTimeframe = Timeframe | (typeof GOLD_EXTRA)[number];
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
@@ -114,22 +121,32 @@ function loadOandaTimeframe(tf: Timeframe): Promise<Candle[]> {
   return loadOandaSeries("OANDA:XAUUSD", tf, RESOLUTION[tf]);
 }
 
-async function loadOandaBook(): Promise<Record<Timeframe, Candle[]>> {
-  const rows = await Promise.all(
-    ORDER.map(async (tf) => [tf, await loadOandaTimeframe(tf)] as const)
-  );
-  const books = {} as Record<Timeframe, Candle[]>;
+export interface GoldBook {
+  series: Record<GoldChartTimeframe, Candle[]>;
+}
+
+async function loadOandaBook(): Promise<Record<Timeframe, Candle[]> & GoldBook> {
+  const rows = await Promise.all([
+    ...ORDER.map(async (tf) => [tf, await loadOandaTimeframe(tf)] as const),
+    ...GOLD_EXTRA.map(async (tf) => [tf, await loadOandaSeries("OANDA:XAUUSD", tf, GOLD_EXTRA_RESOLUTION[tf])] as const),
+  ]);
+  const books = {} as Record<Timeframe, Candle[]> & GoldBook;
+  const series = {} as Record<GoldChartTimeframe, Candle[]>;
   for (const [tf, candles] of rows) {
     if (candles.length < 30) throw new Error(`OANDA ${tf} history is incomplete`);
-    books[tf] = candles;
+    series[tf] = candles;
+    if (tf === "5m" || tf === "15m" || tf === "30m" || tf === "1h" || tf === "4h" || tf === "1d") {
+      books[tf] = candles;
+    }
   }
+  books.series = series;
   return books;
 }
 
-let cached: { at: number; book: Record<Timeframe, Candle[]> } | null = null;
-let pending: Promise<Record<Timeframe, Candle[]>> | null = null;
+let cached: { at: number; book: Record<Timeframe, Candle[]> & GoldBook } | null = null;
+let pending: Promise<Record<Timeframe, Candle[]> & GoldBook> | null = null;
 
-async function book(): Promise<Record<Timeframe, Candle[]>> {
+async function book(): Promise<Record<Timeframe, Candle[]> & GoldBook> {
   if (cached && Date.now() - cached.at < 20000) return cached.book;
   if (!pending) {
     pending = loadOandaBook()
@@ -166,6 +183,10 @@ export async function fetchSpotSeries(tf: Timeframe): Promise<SpotSeries> {
     symbol: "XAUUSD",
     source: "OANDA:XAUUSD",
   };
+}
+
+export async function fetchGoldSeries(): Promise<Record<GoldChartTimeframe, Candle[]>> {
+  return (await book()).series;
 }
 
 const BTC_RESOLUTION: Record<BtcTimeframe, string> = {

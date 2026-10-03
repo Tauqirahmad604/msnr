@@ -11,7 +11,7 @@ The chart is **OANDA:XAUUSD**, the same symbol used on TradingView.
 - Stop must be **50 pips or less** (1 pip = 0.1)
 - Target is at least **1:2** versus that stop
 - Longs only above the 200 EMA after an EMA20 reclaim. Shorts only below the 200 EMA after an EMA20 loss.
-- Marks recent **A** swing highs and **V** swing lows
+- Marks fresh Alchemist **A** resistance and **V** support from candle closes. A later wick removes the level. Gold charts run from M5 through monthly.
 - Macro strip: dollar index, US 10-year, VIX, silver, and upcoming USD events
 - Trade record with TP / SL counts, win rate, and a **PDF download**
 - Browser journal of live signals this desk actually prints

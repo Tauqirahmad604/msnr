@@ -11,7 +11,9 @@ import { Download, RefreshCw } from "lucide-react";
 
 const JOURNAL_KEY = "aureum-xau-journal-v1";
 const TFS = ["5m", "15m", "30m"] as const;
+const CHART_TFS = ["5m", "15m", "30m", "1h", "4h", "1d", "1w", "1mo"] as const;
 type Tf = (typeof TFS)[number];
+type ChartTf = (typeof CHART_TFS)[number];
 const BTC_TFS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1mo"] as const;
 type BtcTf = (typeof BTC_TFS)[number];
 
@@ -45,6 +47,14 @@ interface Frame {
   biasH1: string;
   biasH4: string;
   biasD1: string;
+}
+
+interface ChartFrame {
+  timeframe: ChartTf;
+  candles: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
+  aLevels: { price: number; time: number; label: string }[];
+  vLevels: { price: number; time: number; label: string }[];
+  atr: number;
 }
 
 interface BtcFrame {
@@ -84,6 +94,7 @@ interface Desk {
     implication: string;
   };
   frames: Frame[];
+  charts: ChartFrame[];
   updatedAt: number;
 }
 
@@ -133,7 +144,7 @@ export function Dashboard() {
   const [desk, setDesk] = useState<Desk | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tf, setTf] = useState<Tf>("5m");
+  const [tf, setTf] = useState<ChartTf>("5m");
   const [journal, setJournal] = useState<ExactTrade[]>([]);
   const [btc, setBtc] = useState<BtcDesk | null>(null);
   const [btcError, setBtcError] = useState<string | null>(null);
@@ -244,27 +255,29 @@ export function Dashboard() {
     setJournal(saved);
   }, [desk]);
 
-  const frame = desk?.frames.find((item) => item.timeframe === tf) ?? null;
+  const frame = desk?.frames.find((item) => item.timeframe === "5m") ?? null;
+  const chart = desk?.charts?.find((item) => item.timeframe === tf) ?? null;
+  const entry = desk?.frames.find((item) => item.timeframe === tf) ?? null;
   const liveWins = journal.filter((item) => item.status === "win").length;
   const liveLosses = journal.filter((item) => item.status === "loss").length;
   const liveDecided = liveWins + liveLosses;
   const liveRate = liveDecided === 0 ? null : Math.round((liveWins / liveDecided) * 1000) / 10;
 
   const marks = useMemo(() => {
-    if (!frame) return [];
+    if (!chart) return [];
     return [
-      ...frame.aLevels.slice(-3).map((level) => ({
+      ...chart.aLevels.map((level) => ({
         price: level.price,
         title: `A ${level.price.toFixed(1)}`,
         color: "rgba(154, 52, 18, 0.75)",
       })),
-      ...frame.vLevels.slice(-3).map((level) => ({
+      ...chart.vLevels.map((level) => ({
         price: level.price,
         title: `V ${level.price.toFixed(1)}`,
         color: "rgba(15, 118, 110, 0.8)",
       })),
     ];
-  }, [frame]);
+  }, [chart]);
 
   const btcFrame = btc?.frames.find((item) => item.timeframe === btcTf) ?? null;
   const btcMarks = useMemo(() => {
@@ -291,7 +304,7 @@ export function Dashboard() {
             Aureum
           </p>
           <h1 className="mt-2 max-w-xl text-base text-[var(--ink-soft)] sm:text-lg">
-            OANDA:XAUUSD on M5, M15, and M30. OANDA:BTCUSD from 1 minute through monthly.
+            OANDA gold and Bitcoin. A and V levels follow Alchemist SNR: candle closes only, and only while they are still fresh.
           </h1>
         </div>
         <div className="flex flex-wrap gap-6 text-right">
@@ -351,7 +364,7 @@ export function Dashboard() {
 
           <section className="rounded-2xl border border-[var(--line)] bg-white/60 p-3 sm:p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              {TFS.map((item) => (
+              {CHART_TFS.map((item) => (
                 <Button
                   key={item}
                   size="sm"
@@ -368,7 +381,8 @@ export function Dashboard() {
                 </Button>
               ))}
               <span className="text-xs text-[var(--ink-mute)]">
-                H1 {frame.biasH1} · H4 {frame.biasH4} · D1 {frame.biasD1} · ATR {pips(frame.atr)} pips
+                H1 {frame.biasH1} · H4 {frame.biasH4} · D1 {frame.biasD1}
+                {chart ? ` · ATR ${pips(chart.atr)} pips` : ""}
               </span>
               <Button
                 size="sm"
@@ -380,13 +394,15 @@ export function Dashboard() {
                 Refresh
               </Button>
             </div>
-            <PriceChart
-              candles={frame.candles}
-              trade={frame.live ? toSetup(frame.live) : null}
-              marks={marks}
-            />
+            {chart && (
+              <PriceChart
+                candles={chart.candles}
+                trade={entry?.live ? toSetup(entry.live) : null}
+                marks={marks}
+              />
+            )}
             <p className="mt-2 px-1 text-xs text-[var(--ink-mute)]">
-              A = swing highs. V = swing lows. Entry, SL, and TP are one price each, not a zone.
+              A is a bullish close followed by a bearish candle. V is a bearish close followed by a bullish candle. The line is that close. A wick touch removes it.
             </p>
           </section>
 
@@ -430,7 +446,7 @@ export function Dashboard() {
               <PriceChart candles={btcFrame.candles} marks={btcMarks} />
             )}
             <p className="mt-2 px-1 text-xs text-[var(--ink-mute)]">
-              A = swing highs. V = swing lows. Same marks as gold, on every Bitcoin timeframe.
+              Same Alchemist rule as gold. A and V are fresh closes. A later wick removes the line.
             </p>
           </section>
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { lastAtr, swingPoints } from "@/lib/engine";
+import { freshSnrLevels, lastAtr } from "@/lib/engine";
 import { BTC_TIMEFRAMES, fetchBtcBook } from "@/lib/market";
 import type { Candle } from "@/lib/types";
 
@@ -11,15 +11,8 @@ function thin(candles: Candle[]) {
   return candles.slice(-220);
 }
 
-function levels(candles: Candle[], side: "high" | "low") {
-  return swingPoints(candles, 3)
-    .filter((swing) => swing.type === side)
-    .slice(-4)
-    .map((swing, index) => ({
-      price: Math.round(swing.price * 100) / 100,
-      time: swing.time,
-      label: `${side === "high" ? "A" : "V"}${index + 1}`,
-    }));
+function levels(candles: Candle[]) {
+  return freshSnrLevels(candles);
 }
 
 export async function GET() {
@@ -34,8 +27,8 @@ export async function GET() {
       return {
         timeframe,
         candles: thin(candles),
-        aLevels: levels(candles, "high"),
-        vLevels: levels(candles, "low"),
+        aLevels: levels(candles).aLevels,
+        vLevels: levels(candles).vLevels,
         atr: lastAtr(candles),
       };
     });

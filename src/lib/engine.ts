@@ -112,6 +112,77 @@ export function swingPoints(candles: Candle[], lookback: number): Swing[] {
   return swings;
 }
 
+/**
+ * Alchemist SNR. An A is a bullish candle followed by a bearish candle,
+ * and the line sits on that bullish close. A V is a bearish candle followed
+ * by a bullish candle, on the bearish close. Wicks do not place the line.
+ * A later wick or body touch removes it. Only fresh levels inside the
+ * visible window are returned, nearest first.
+ */
+export function freshSnrLevels(candles: Candle[], windowBars = 220): { aLevels: Level[]; vLevels: Level[] } {
+  const empty = { aLevels: [] as Level[], vLevels: [] as Level[] };
+  const look = 3;
+  if (candles.length < look * 2 + 2) return empty;
+  const price = candles[candles.length - 1].close;
+  const visible = candles.slice(-windowBars);
+  const ceiling = Math.max(...visible.map((candle) => candle.high));
+  const floor = Math.min(...visible.map((candle) => candle.low));
+  const found: { side: "A" | "V"; price: number; time: number }[] = [];
+
+  for (let i = look; i < candles.length - look - 1; i++) {
+    const candle = candles[i];
+    const next = candles[i + 1];
+    const bullish = candle.close > candle.open;
+    const bearish = candle.close < candle.open;
+    let side: "A" | "V" | null = null;
+    if (bullish && next.close < next.open) {
+      let peak = true;
+      for (let k = 1; k <= look; k++) {
+        if (candles[i - k].close > candle.close || candles[i + k].close > candle.close) peak = false;
+      }
+      if (peak) side = "A";
+    } else if (bearish && next.close > next.open) {
+      let valley = true;
+      for (let k = 1; k <= look; k++) {
+        if (candles[i - k].close < candle.close || candles[i + k].close < candle.close) valley = false;
+      }
+      if (valley) side = "V";
+    }
+    if (!side) continue;
+
+    const level = candle.close;
+    let fresh = true;
+    for (let j = i + 2; j < candles.length; j++) {
+      if (side === "A" && candles[j].high >= level) {
+        fresh = false;
+        break;
+      }
+      if (side === "V" && candles[j].low <= level) {
+        fresh = false;
+        break;
+      }
+    }
+    if (!fresh) continue;
+    if (side === "A" && level <= price + 0.05) continue;
+    if (side === "V" && level >= price - 0.05) continue;
+    if (level > ceiling || level < floor) continue;
+    found.push({ side, price: level, time: candle.time });
+  }
+
+  const take = (side: "A" | "V") =>
+    found
+      .filter((level) => level.side === side)
+      .sort((a, b) => Math.abs(a.price - price) - Math.abs(b.price - price))
+      .slice(0, 3)
+      .map((level, index) => ({
+        price: round2(level.price),
+        time: level.time,
+        label: `${side}${index + 1}`,
+      }));
+
+  return { aLevels: take("A"), vLevels: take("V") };
+}
+
 export function structureBias(candles: Candle[]): Bias {
   if (candles.length < 25) return "ranging";
   const swings = swingPoints(candles, 3);
@@ -449,15 +520,7 @@ export function analyzeTimeframe(
     (t) => t.stopPips <= MAX_STOP_PIPS && t.tpPips >= t.stopPips * 2
   );
   const live = [...trades].reverse().find((t) => t.status === "open") ?? null;
-  const swings = swingPoints(candles, 3);
-  const aLevels = swings
-    .filter((s) => s.type === "high")
-    .slice(-4)
-    .map((s, i) => ({ price: round2(s.price), time: s.time, label: `A${i + 1}` }));
-  const vLevels = swings
-    .filter((s) => s.type === "low")
-    .slice(-4)
-    .map((s, i) => ({ price: round2(s.price), time: s.time, label: `V${i + 1}` }));
+  const { aLevels, vLevels } = freshSnrLevels(candles);
 
   return {
     biasH1: structureBias(h1.slice(-80)),
