@@ -6,7 +6,7 @@ The chart is **OANDA:XAUUSD**, the same symbol used on TradingView.
 
 ## What it does
 
-- Chart source is **OANDA:XAUUSD**
+- Chart source is **OANDA:XAUUSD**, plus an **OANDA:BTCUSD** chart on 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, and 1mo
 - Exact **M5 / M15 / M30** entries (one price, not a zone)
 - Stop must be **50 pips or less** (1 pip = 0.1)
 - Target is at least **1:2** versus that stop

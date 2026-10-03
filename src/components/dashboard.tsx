@@ -12,6 +12,20 @@ import { Download, RefreshCw } from "lucide-react";
 const JOURNAL_KEY = "aureum-xau-journal-v1";
 const TFS = ["5m", "15m", "30m"] as const;
 type Tf = (typeof TFS)[number];
+const BTC_TFS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1mo"] as const;
+type BtcTf = (typeof BTC_TFS)[number];
+
+const BTC_LABEL: Record<BtcTf, string> = {
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
+  "30m": "30m",
+  "1h": "1h",
+  "4h": "4h",
+  "1d": "1d",
+  "1w": "1w",
+  "1mo": "1mo",
+};
 
 interface Frame {
   timeframe: Tf;
@@ -31,6 +45,22 @@ interface Frame {
   biasH1: string;
   biasH4: string;
   biasD1: string;
+}
+
+interface BtcFrame {
+  timeframe: BtcTf;
+  candles: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
+  aLevels: { price: number; time: number; label: string }[];
+  vLevels: { price: number; time: number; label: string }[];
+  atr: number;
+}
+
+interface BtcDesk {
+  symbol: "BTCUSD";
+  spot: number;
+  source: string;
+  frames: BtcFrame[];
+  updatedAt: number;
 }
 
 interface Desk {
@@ -105,6 +135,10 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [tf, setTf] = useState<Tf>("5m");
   const [journal, setJournal] = useState<ExactTrade[]>([]);
+  const [btc, setBtc] = useState<BtcDesk | null>(null);
+  const [btcError, setBtcError] = useState<string | null>(null);
+  const [btcLoading, setBtcLoading] = useState(true);
+  const [btcTf, setBtcTf] = useState<BtcTf>("5m");
 
   useEffect(() => {
     let stop = false;
@@ -121,6 +155,31 @@ export function Dashboard() {
         if (!stop) setError(err instanceof Error ? err.message : "Desk failed");
       } finally {
         if (!stop) setLoading(false);
+      }
+    };
+    void load();
+    const timer = setInterval(() => void load(), 20000);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let stop = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/btc", { cache: "no-store" });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Bitcoin chart failed");
+        if (!stop) {
+          setBtc(json as BtcDesk);
+          setBtcError(null);
+        }
+      } catch (err) {
+        if (!stop) setBtcError(err instanceof Error ? err.message : "Bitcoin chart failed");
+      } finally {
+        if (!stop) setBtcLoading(false);
       }
     };
     void load();
@@ -207,6 +266,23 @@ export function Dashboard() {
     ];
   }, [frame]);
 
+  const btcFrame = btc?.frames.find((item) => item.timeframe === btcTf) ?? null;
+  const btcMarks = useMemo(() => {
+    if (!btcFrame) return [];
+    return [
+      ...btcFrame.aLevels.slice(-3).map((level) => ({
+        price: level.price,
+        title: `A ${level.price.toFixed(1)}`,
+        color: "rgba(154, 52, 18, 0.75)",
+      })),
+      ...btcFrame.vLevels.slice(-3).map((level) => ({
+        price: level.price,
+        title: `V ${level.price.toFixed(1)}`,
+        color: "rgba(15, 118, 110, 0.8)",
+      })),
+    ];
+  }, [btcFrame]);
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
       <header className="flex flex-wrap items-end justify-between gap-4 pt-8">
@@ -215,17 +291,28 @@ export function Dashboard() {
             Aureum
           </p>
           <h1 className="mt-2 max-w-xl text-base text-[var(--ink-soft)] sm:text-lg">
-            OANDA:XAUUSD. Exact M5, M15, and M30 entries. Minimum 1:2 reward, stop at most 50 pips.
+            OANDA:XAUUSD on M5, M15, and M30. OANDA:BTCUSD from 1 minute through monthly.
           </h1>
         </div>
-        <div className="text-right">
-          <p className="text-xs tracking-[0.16em] text-[var(--ink-mute)] uppercase">OANDA:XAUUSD</p>
-          <p className="font-[family-name:var(--font-display)] text-4xl tabular-nums text-[var(--ink)]">
-            {desk ? desk.spot.toFixed(2) : "—"}
-          </p>
-          <p className="text-xs text-[var(--ink-mute)]">
-            {desk ? desk.source : "Loading OANDA"}
-          </p>
+        <div className="flex flex-wrap gap-6 text-right">
+          <div>
+            <p className="text-xs tracking-[0.16em] text-[var(--ink-mute)] uppercase">OANDA:XAUUSD</p>
+            <p className="font-[family-name:var(--font-display)] text-4xl tabular-nums text-[var(--ink)]">
+              {desk ? desk.spot.toFixed(2) : "—"}
+            </p>
+            <p className="text-xs text-[var(--ink-mute)]">
+              {desk ? desk.source : "Loading OANDA"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs tracking-[0.16em] text-[var(--ink-mute)] uppercase">OANDA:BTCUSD</p>
+            <p className="font-[family-name:var(--font-display)] text-4xl tabular-nums text-[var(--ink)]">
+              {btc ? btc.spot.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
+            </p>
+            <p className="text-xs text-[var(--ink-mute)]">
+              {btc ? btc.source : "Loading Bitcoin"}
+            </p>
+          </div>
         </div>
       </header>
 
@@ -300,6 +387,50 @@ export function Dashboard() {
             />
             <p className="mt-2 px-1 text-xs text-[var(--ink-mute)]">
               A = swing highs. V = swing lows. Entry, SL, and TP are one price each, not a zone.
+            </p>
+          </section>
+
+          <section className="rounded-2xl border border-[var(--line)] bg-white/60 p-3 sm:p-4">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-[11px] tracking-[0.16em] text-[var(--ink-mute)] uppercase">OANDA:BTCUSD</p>
+                <h2 className="font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">Bitcoin</h2>
+              </div>
+              {btcFrame && (
+                <p className="text-xs text-[var(--ink-mute)]">ATR {btcFrame.atr.toFixed(1)}</p>
+              )}
+            </div>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {BTC_TFS.map((item) => (
+                <Button
+                  key={item}
+                  size="sm"
+                  variant={btcTf === item ? "default" : "outline"}
+                  onClick={() => setBtcTf(item)}
+                  className={cn(
+                    "rounded-lg",
+                    btcTf === item
+                      ? "bg-[var(--ink)] text-[var(--paper)] hover:bg-[var(--ink)]"
+                      : "border-[var(--line)] bg-white/70"
+                  )}
+                >
+                  {BTC_LABEL[item]}
+                </Button>
+              ))}
+            </div>
+            {btcError && (
+              <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                {btcError}
+              </p>
+            )}
+            {btcLoading && !btc && (
+              <div className="h-[380px] animate-pulse rounded-2xl bg-white/50 sm:h-[460px]" />
+            )}
+            {btcFrame && (
+              <PriceChart candles={btcFrame.candles} marks={btcMarks} />
+            )}
+            <p className="mt-2 px-1 text-xs text-[var(--ink-mute)]">
+              A = swing highs. V = swing lows. Same marks as gold, on every Bitcoin timeframe.
             </p>
           </section>
 

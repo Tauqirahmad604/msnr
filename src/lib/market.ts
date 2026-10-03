@@ -1,4 +1,4 @@
-import type { Candle, Timeframe } from "@/lib/types";
+import type { BtcTimeframe, Candle, Timeframe } from "@/lib/types";
 
 const RESOLUTION: Record<Timeframe, string> = {
   "5m": "5",
@@ -33,7 +33,7 @@ function parseMessages(raw: string) {
   return out;
 }
 
-function loadOandaTimeframe(tf: Timeframe): Promise<Candle[]> {
+function loadOandaSeries(symbol: string, tf: string, resolution: string): Promise<Candle[]> {
   const socket = new WebSocket(
     "wss://data.tradingview.com/socket.io/websocket",
     { headers: { Origin: "https://www.tradingview.com" } } as unknown as string[]
@@ -45,24 +45,24 @@ function loadOandaTimeframe(tf: Timeframe): Promise<Candle[]> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.close();
-      reject(new Error(`OANDA ${tf} chart timed out`));
+      reject(new Error(`${symbol} ${tf} chart timed out`));
     }, 20000);
 
     socket.addEventListener("open", () => {
       socket.send(packet({ m: "set_auth_token", p: ["unauthorized_user_token"] }));
       socket.send(packet({ m: "chart_create_session", p: [chart, ""] }));
-      const symbol =
+      const spec =
         "=" +
         JSON.stringify({
-          symbol: "OANDA:XAUUSD",
+          symbol,
           adjustment: "splits",
           session: "regular",
         });
-      socket.send(packet({ m: "resolve_symbol", p: [chart, "sym_xau", symbol] }));
+      socket.send(packet({ m: "resolve_symbol", p: [chart, "sym", spec] }));
       socket.send(
         packet({
           m: "create_series",
-          p: [chart, "s1", "s1", "sym_xau", RESOLUTION[tf], 5000, ""],
+          p: [chart, "s1", "s1", "sym", resolution, 5000, ""],
         })
       );
     });
@@ -98,16 +98,20 @@ function loadOandaTimeframe(tf: Timeframe): Promise<Candle[]> {
         if (msg.m === "symbol_error" || msg.m === "series_error") {
           clearTimeout(timer);
           socket.close();
-          reject(new Error(`OANDA ${tf} symbol was rejected`));
+          reject(new Error(`${symbol} ${tf} symbol was rejected`));
         }
       }
     });
 
     socket.addEventListener("error", () => {
       clearTimeout(timer);
-      reject(new Error(`OANDA ${tf} chart connection failed`));
+      reject(new Error(`${symbol} ${tf} chart connection failed`));
     });
   });
+}
+
+function loadOandaTimeframe(tf: Timeframe): Promise<Candle[]> {
+  return loadOandaSeries("OANDA:XAUUSD", tf, RESOLUTION[tf]);
 }
 
 async function loadOandaBook(): Promise<Record<Timeframe, Candle[]>> {
@@ -162,4 +166,69 @@ export async function fetchSpotSeries(tf: Timeframe): Promise<SpotSeries> {
     symbol: "XAUUSD",
     source: "OANDA:XAUUSD",
   };
+}
+
+const BTC_RESOLUTION: Record<BtcTimeframe, string> = {
+  "1m": "1",
+  "5m": "5",
+  "15m": "15",
+  "30m": "30",
+  "1h": "60",
+  "4h": "240",
+  "1d": "1D",
+  "1w": "1W",
+  "1mo": "1M",
+};
+
+export const BTC_TIMEFRAMES: BtcTimeframe[] = [
+  "1m",
+  "5m",
+  "15m",
+  "30m",
+  "1h",
+  "4h",
+  "1d",
+  "1w",
+  "1mo",
+];
+
+export interface BtcBook {
+  candles: Record<BtcTimeframe, Candle[]>;
+  spot: number;
+  source: "OANDA:BTCUSD";
+  symbol: "BTCUSD";
+}
+
+let btcCached: { at: number; book: BtcBook } | null = null;
+let btcPending: Promise<BtcBook> | null = null;
+
+async function loadBtcBook(): Promise<BtcBook> {
+  const rows = await Promise.all(
+    BTC_TIMEFRAMES.map(async (tf) => {
+      const candles = await loadOandaSeries("OANDA:BTCUSD", tf, BTC_RESOLUTION[tf]);
+      if (candles.length < 30) throw new Error(`OANDA:BTCUSD ${tf} history is incomplete`);
+      return [tf, candles] as const;
+    })
+  );
+  const candles = {} as Record<BtcTimeframe, Candle[]>;
+  for (const [tf, bars] of rows) candles[tf] = bars;
+  const spot = candles["1m"][candles["1m"].length - 1].close;
+  return { candles, spot, source: "OANDA:BTCUSD", symbol: "BTCUSD" };
+}
+
+export async function fetchBtcBook(): Promise<BtcBook> {
+  if (btcCached && Date.now() - btcCached.at < 20000) return btcCached.book;
+  if (!btcPending) {
+    btcPending = loadBtcBook()
+      .then((next) => {
+        btcCached = { at: Date.now(), book: next };
+        btcPending = null;
+        return next;
+      })
+      .catch((error) => {
+        btcPending = null;
+        throw error;
+      });
+  }
+  return btcPending;
 }
